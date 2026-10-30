@@ -1,0 +1,29 @@
+# Agent files (local only, backed up in the Vault)
+.claude/
+CLAUDE.md
+AGENTS.md
+.mcp.json
+.loki/
+
+# Private notes and plans
+notes/
+
+# Android / Gradle
+.gradle/
+build/
+local.properties
+*.iml
+.idea/
+captures/
+*.apk
+*.aab
+*.keystore
+*.jks
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Kotlin compiler cache
+.kotlin/
