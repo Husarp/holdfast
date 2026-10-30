@@ -17,7 +17,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @Composable
-fun AppsScreen(viewModel: AppsViewModel) {
+fun AppsScreen(viewModel: AppsViewModel, navigate: (String) -> Unit = {}) {
     val apps by viewModel.apps.collectAsStateWithLifecycle()
     val pinned by viewModel.pinnedApps.collectAsStateWithLifecycle(emptyList())
     val loading by viewModel.loading.collectAsStateWithLifecycle()
@@ -26,17 +26,27 @@ fun AppsScreen(viewModel: AppsViewModel) {
         viewModel.refresh()
         onPauseOrDispose { }
     }
-    AppsContent(apps, pinned, loading, error, viewModel::setPinned)
+    val container = (androidx.compose.ui.platform.LocalContext.current.applicationContext as com.husarp.holdfast.HoldfastApplication).container
+    val history by container.repository.history.collectAsState(emptyList())
+    var app by remember { mutableStateOf<LaunchableApp?>(null) }
+    AppsContent(apps, pinned, loading, error, viewModel::setPinned, history, { app = it })
+    app?.let { AppSettingsSheet(it, { app = null }, navigate) }
 }
 
 @Composable
 fun AppsContent(apps: List<LaunchableApp>, pinned: List<com.husarp.holdfast.data.PinnedApp>,
-    loading: Boolean = false, error: String? = null, setPinned: (String, Boolean, Long) -> Unit = { _, _, _ -> }) {
+    loading: Boolean = false, error: String? = null, setPinned: (String, Boolean, Long) -> Unit = { _, _, _ -> },
+    history: List<com.husarp.holdfast.data.NotificationEvent> = emptyList(), openApp: (LaunchableApp) -> Unit = {}) {
     var search by rememberSaveable { mutableStateOf("") }
     val selected = pinned.filter { it.enabled }.map { it.packageName to it.userSerial }.toSet()
-    val filtered = apps.filter { it.label.contains(search, ignoreCase = true) || it.packageName.contains(search, ignoreCase = true) }
+    var pinnedOnly by rememberSaveable { mutableStateOf(false) }
+    val recent = history.filter { it.capturedAt >= System.currentTimeMillis() - 7 * 86_400_000L }.map { it.packageName to it.userSerial }.toSet()
+    val filtered = apps.filter { !pinnedOnly || (it.packageName to it.userSerial) in selected }.sortedWith(compareBy<LaunchableApp> {
+        com.husarp.holdfast.data.appSortRank((it.packageName to it.userSerial) in selected, (it.packageName to it.userSerial) in recent)
+    }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.label }).filter { it.label.contains(search, ignoreCase = true) || it.packageName.contains(search, ignoreCase = true) }
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        Text("Choose launchable apps whose notifications Holdfast should capture. Apps without a launcher are not listed.")
+        Text("Choose apps to keep close.")
+        FilterChip(pinnedOnly, { pinnedOnly = !pinnedOnly }, label = { Text("Pinned only") })
         OutlinedTextField(value = search, onValueChange = { search = it }, label = { Text("Search apps") },
             singleLine = true, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp))
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -47,7 +57,7 @@ fun AppsContent(apps: List<LaunchableApp>, pinned: List<com.husarp.holdfast.data
                 val checked = (app.packageName to app.userSerial) in selected
                 Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                     ListItem(
-                        modifier = Modifier.clickable { setPinned(app.packageName, !checked, app.userSerial) },
+                        modifier = Modifier.clickable { openApp(app) },
                         leadingContent = {
                             val icon = remember(app.icon) { app.icon.toBitmap(80, 80).asImageBitmap() }
                             Image(icon, null, Modifier.size(40.dp))

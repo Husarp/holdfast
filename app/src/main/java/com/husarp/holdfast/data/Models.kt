@@ -35,12 +35,14 @@ data class CapturedNotification(
     val isVip: Boolean = false,
     val nextRepeatAt: Long? = null,
     val userSerial: Long = 0,
+    val returnCount: Int = 0,
 )
 
 @Entity
 data class Settings(
     @PrimaryKey val id: Int = 1,
     val activeProfileId: Long = 1,
+    val pausedUntil: Long? = null,
     val returnDelayMinutes: Int = 0,
     val expireAfterMinutes: Int? = null,
 ) { init { require(id == 1); require(returnDelayMinutes >= 0); require(expireAfterMinutes == null || expireAfterMinutes > 0) } }
@@ -119,11 +121,14 @@ data class AppOptions(
     val packageName: String,
     val profileId: Long = 1,
     val vipSenders: String = "",
+    val returnDelayMinutes: Int? = null,
+    val overrideExpiry: Boolean = false,
+    val expireAfterMinutes: Int? = null,
     val repeatMinutes: Int? = null,
     val digestOnly: Boolean = false,
     val digestTimes: String = "09:00,18:00",
 ) {
-    init { require(repeatMinutes == null || repeatMinutes > 0); require(parseDigestTimes(digestTimes).isNotEmpty()) }
+    init { require(returnDelayMinutes == null || returnDelayMinutes >= 0); require(expireAfterMinutes == null || expireAfterMinutes > 0); require(repeatMinutes == null || repeatMinutes > 0); require(parseDigestTimes(digestTimes).isNotEmpty()) }
     fun isVip(row: CapturedNotification) = vipSenders.lines().filter { it.isNotBlank() }.any {
         it.trim().equals(row.sender ?: row.title, ignoreCase = true)
     }

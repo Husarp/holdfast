@@ -1,0 +1,8 @@
+## 0.1.0
+- Keep selected apps' notifications as copies, even after a restart.
+- Snooze, dismiss, reply, and bring notifications back from local history.
+- Choose profiles, quiet hours and places, VIP senders, repeats and digests.
+- Mute unwanted notifications and review activity statistics and spam hints.
+- Keep personal and work apps separate; export and import local settings.
+- Pause Holdfast, customize app timing, and undo a dismissal.
+- Check for updates and install them from Settings.

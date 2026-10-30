@@ -11,6 +11,10 @@ class HoldfastApplication : Application(), androidx.work.Configuration.Provider 
     override val workManagerConfiguration get() = androidx.work.Configuration.Builder().build()
     override fun onCreate() {
         super.onCreate()
+        com.husarp.holdfast.update.Updates.onAppStart(this)
+        if (getSharedPreferences("health", 0).getBoolean("used", false)) com.husarp.holdfast.notifications.listenerHealth(this, false)
+        androidx.work.WorkManager.getInstance(this).enqueueUniquePeriodicWork("listener-health", androidx.work.ExistingPeriodicWorkPolicy.KEEP,
+            androidx.work.PeriodicWorkRequestBuilder<com.husarp.holdfast.notifications.ListenerHealthWorker>(15, java.util.concurrent.TimeUnit.MINUTES).build())
         androidx.work.WorkManager.getInstance(this).enqueueUniquePeriodicWork(
             "history-cleanup", androidx.work.ExistingPeriodicWorkPolicy.KEEP,
             androidx.work.PeriodicWorkRequestBuilder<com.husarp.holdfast.scheduling.HistoryCleanupWorker>(

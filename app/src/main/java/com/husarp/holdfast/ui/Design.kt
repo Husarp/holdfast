@@ -62,7 +62,7 @@ fun screenIcon(screen: String): ImageVector = when (screen) {
 fun AppIcon(pkg: String, serial: Long = 0) {
     val context = LocalContext.current
     val bitmap = remember(pkg, serial) { profileIcon(context, pkg, serial).toBitmap(80, 80).asImageBitmap() }
-    Image(bitmap, null, Modifier.size(40.dp))
+    Image(bitmap, null, Modifier.size(48.dp))
 }
 
 @Composable
@@ -81,7 +81,7 @@ fun SettingsScreen(navigate: (String) -> Unit) {
         item { Text("Make Holdfast yours", style = MaterialTheme.typography.titleLarge) }
         item {
             Card {
-                listOf("Setup", "Timing").forEach { SettingsRow(it, navigate) }
+                listOf("Setup", "Timing", "Updates", "What’s new").forEach { SettingsRow(it, navigate) }
             }
         }
         item { Text("Organize", style = MaterialTheme.typography.titleMedium) }

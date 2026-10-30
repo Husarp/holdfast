@@ -12,7 +12,7 @@ import com.husarp.holdfast.data.*
 import kotlinx.coroutines.launch
 
 @Composable
-fun ProfilesScreen() {
+fun ProfilesScreen(initialApp: String = "") {
     val container = (LocalContext.current.applicationContext as HoldfastApplication).container
     val repo = container.repository
     val dao = container.database.dao()
@@ -24,7 +24,7 @@ fun ProfilesScreen() {
     val scope = rememberCoroutineScope()
     var message by remember { mutableStateOf("") }
     var name by remember { mutableStateOf("") }
-    var app by remember { mutableStateOf("") }
+    var app by remember(initialApp) { mutableStateOf(initialApp) }
     var vip by remember { mutableStateOf("") }
     var repeat by remember { mutableStateOf("") }
     var digest by remember { mutableStateOf(false) }
@@ -61,7 +61,7 @@ fun ProfilesScreen() {
             Row { Checkbox(digest, { digest = it }); Text("Digest only") }
             OutlinedTextField(times, { times = it }, label = { Text("Digest times HH:mm, comma separated") })
             Button(enabled = app.isNotBlank() && parseDigestTimes(times).isNotEmpty() && (repeat.isBlank() || (repeat.toIntOrNull() ?: 0) > 0), onClick = { scope.launch {
-                dao.saveOptions(AppOptions(app, settings.activeProfileId, vip, repeat.toIntOrNull(), digest, times)); container.copies.recover(); message = "App options saved"
+                dao.saveOptions((options.find { it.packageName == app && it.profileId == settings.activeProfileId } ?: AppOptions(app, settings.activeProfileId)).copy(vipSenders = vip, repeatMinutes = repeat.toIntOrNull(), digestOnly = digest, digestTimes = times)); container.copies.recover(); message = "App options saved"
             } }) { Text("Save app options") }
             OutlinedTextField(days, { days = it }, label = { Text("Days: Monday=1 … Sunday=7, comma separated") })
             OutlinedTextField(start, { start = it }, label = { Text("Start HH:mm") })

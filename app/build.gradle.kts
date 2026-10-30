@@ -1,9 +1,15 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
 }
+val appVersion = "0.1.0"
+val signingProperties = Properties()
+val signingFile = file("${System.getProperty("user.home")}/.keystores/holdfast-signing.properties")
+if (signingFile.exists()) signingFile.inputStream().use { signingProperties.load(it) }
 android {
     namespace = "com.husarp.holdfast"
     compileSdk = 36
@@ -11,9 +17,18 @@ android {
         applicationId = "com.husarp.holdfast"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1"
+        versionCode = appVersion.split('.').map(String::toInt).let { it[0] * 1_000_000 + it[1] * 1_000 + it[2] }
+        versionName = appVersion
     }
+    signingConfigs {
+        if (signingFile.exists()) create("release") {
+            storeFile = file(signingProperties.getProperty("storeFile"))
+            storePassword = signingProperties.getProperty("storePassword")
+            keyAlias = signingProperties.getProperty("keyAlias")
+            keyPassword = signingProperties.getProperty("keyPassword")
+        }
+    }
+    buildTypes { getByName("release") { signingConfig = signingConfigs.getByName(if (signingFile.exists()) "release" else "debug") } }
     buildFeatures { compose = true; buildConfig = true }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

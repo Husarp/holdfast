@@ -14,7 +14,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 
 @Composable
-fun RulesScreen() {
+fun RulesScreen(initialApp: String = "") {
     val container = (LocalContext.current.applicationContext as HoldfastApplication).container
     val repository = container.repository
     val rules by repository.rules.collectAsState(initial = emptyList())
@@ -23,7 +23,7 @@ fun RulesScreen() {
     val history by repository.history.collectAsState(initial = emptyList())
     val apps = (pinned.map { it.packageName } + channels.map { it.packageName } + history.map { it.packageName }).distinct().sorted()
     var message by remember { mutableStateOf("") }
-    var app by remember { mutableStateOf("") }
+    var app by remember(initialApp) { mutableStateOf(initialApp) }
     var kind by remember { mutableStateOf("Title") }
     var value by remember { mutableStateOf("") }
     var chooseApp by remember { mutableStateOf(false) }

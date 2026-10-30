@@ -2,13 +2,11 @@ package com.husarp.holdfast.notifications
 
 import android.app.*
 import android.content.*
-import com.husarp.holdfast.BuildConfig
 import com.husarp.holdfast.MainActivity
 
 const val DEBUG_CHANNEL = "debug_source"
 
 fun sendTestNotification(context: Context): Boolean {
-    if (!BuildConfig.DEBUG) return false
     val manager = context.getSystemService(NotificationManager::class.java)
     manager.createNotificationChannel(NotificationChannel(DEBUG_CHANNEL, "Test source", NotificationManager.IMPORTANCE_DEFAULT))
     if (!manager.areNotificationsEnabled() || manager.getNotificationChannel(DEBUG_CHANNEL)?.importance == NotificationManager.IMPORTANCE_NONE) return false

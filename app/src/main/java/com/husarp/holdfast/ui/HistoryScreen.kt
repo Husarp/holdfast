@@ -13,19 +13,23 @@ import com.husarp.holdfast.HoldfastApplication
 import com.husarp.holdfast.data.NotificationEvent
 import java.text.DateFormat
 import java.util.Date
+import kotlinx.coroutines.launch
 
 @Composable
 fun HistoryScreen() {
-    val repository = (LocalContext.current.applicationContext as HoldfastApplication).container.repository
-    val history by repository.history.collectAsState(initial = emptyList())
-    HistoryContent(history)
+    val container = (LocalContext.current.applicationContext as HoldfastApplication).container
+    val history by container.repository.history.collectAsState(initial = emptyList())
+    val scope = rememberCoroutineScope()
+    HistoryContent(history) { row -> scope.launch { container.copies.bringBack(row) } }
 }
 
 @Composable
-fun HistoryContent(history: List<NotificationEvent>) {
+fun HistoryContent(history: List<NotificationEvent>, bringBack: (NotificationEvent) -> Unit = {}) {
+    var search by remember { mutableStateOf("") }
     var app by remember { mutableStateOf<Pair<String, Long>?>(null) }
     var expanded by remember { mutableStateOf(false) }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        item { OutlinedTextField(search, { search = it }, label = { Text("Search history") }, modifier = Modifier.fillMaxWidth()) }
         item {
             Box {
                 OutlinedButton(onClick = { expanded = true }) { Text(history.find { it.packageName to it.userSerial == app }?.appLabel ?: "All apps") }
@@ -39,10 +43,11 @@ fun HistoryContent(history: List<NotificationEvent>) {
             }
         }
         if (history.isEmpty()) item { EmptyState("Notifications from your selected apps will appear here.", screenIcon("History")) }
-        items(history.filter { app == null || it.packageName to it.userSerial == app }, key = { it.id }) { row ->
+        items(history.filter { (app == null || it.packageName to it.userSerial == app) && "${it.appLabel} ${it.title} ${it.text}".contains(search, true) }, key = { it.id }) { row ->
             Card {
                 NotificationRow(row.packageName, row.userSerial, row.appLabel, row.title, row.text,
                     DateFormat.getDateTimeInstance().format(Date(row.capturedAt)))
+                TextButton(onClick = { bringBack(row) }, modifier = Modifier.align(androidx.compose.ui.Alignment.End)) { Text("Bring back") }
             }
         }
     }

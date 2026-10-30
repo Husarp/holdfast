@@ -14,7 +14,7 @@ original app's icon and name), and keeps bringing it back until you open it or t
 - Export and import of your rules and settings.
 
 ## Privacy
-Everything stays on your phone. The app has no internet permission, no analytics and no cloud backup.
+Notification data stays on your phone. Internet access is used only to check GitHub for updates and download an APK you request. No user data is ever sent. There are no analytics or cloud backups.
 
 ## Limits
 - Android does not let an app keep another app's notification from being removed, so Holdfast shows a copy instead.

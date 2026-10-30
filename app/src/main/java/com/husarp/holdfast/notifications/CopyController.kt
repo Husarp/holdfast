@@ -35,7 +35,7 @@ class CopyController(private val context: Context, private val container: AppCon
         }
         val options = container.repository.options(row)
         val copy = row.copy(isVip = options.isVip(row), nextRepeatAt = repeatAt(System.currentTimeMillis(), options.repeatMinutes),state = NotificationState.COPY_VISIBLE, copyId = row.id.toInt(), updatedAt = System.currentTimeMillis(), actionVersion = row.actionVersion + 1,
-            firstCopyAt = System.currentTimeMillis(), expireAt = expiryAt(System.currentTimeMillis(), container.repository.settings.first().expireAfterMinutes))
+            firstCopyAt = System.currentTimeMillis(), expireAt = expiryAt(System.currentTimeMillis(), effectiveExpiry(container.repository.settings.first(), options)))
         val members = group(copy)
         val version = (members.maxOfOrNull { it.actionVersion } ?: copy.actionVersion) + 1
         val leader = members.minOfOrNull { it.copyId ?: it.id.toInt() } ?: copy.id.toInt()
@@ -49,7 +49,7 @@ class CopyController(private val context: Context, private val container: AppCon
         if (version != null && version != row.actionVersion) return@withLock
         if (row.state != NotificationState.COPY_VISIBLE) return@withLock
         if (isExpired(row, System.currentTimeMillis())) { refresh(); return@withLock }
-        val delay = container.repository.settings.first().returnDelayMinutes * 60_000L
+        val delay = effectiveDelay(container.repository.settings.first(), container.repository.options(row)) * 60_000L
         val waiting = row.copy(state = NotificationState.COPY_WAITING, updatedAt = System.currentTimeMillis(), nextShowAt = System.currentTimeMillis() + delay)
         group(row).forEach { dao.saveNotification(it.copy(state = waiting.state, nextShowAt = waiting.nextShowAt)) }
         refresh()
@@ -77,6 +77,28 @@ class CopyController(private val context: Context, private val container: AppCon
         row.copyId?.let { manager.cancel("copy", it) }
         refresh()
         row
+    }
+
+    suspend fun bringBack(event: NotificationEvent) = mutex.withLock {
+        val old = dao.notificationById(event.notificationId)
+        val now = System.currentTimeMillis()
+        val row = old ?: CapturedNotification(packageName = event.packageName, userSerial = event.userSerial,
+            appLabel = event.appLabel, sourceKey = "history:${event.id}", channelId = null,
+            title = event.title, text = event.text, postedAt = event.capturedAt, updatedAt = now)
+        val options = container.repository.options(row)
+        dao.saveNotification(row.copy(state = NotificationState.COPY_WAITING, nextShowAt = now,
+            policyDeferred = false, resumeAt = null, firstCopyAt = null,
+            expireAt = expiryAt(now, effectiveExpiry(container.repository.settings.first(), options)), actionVersion = row.actionVersion + 1))
+        refresh(true)
+    }
+
+    suspend fun undo(rows: List<CapturedNotification>) = mutex.withLock {
+        rows.forEach { row ->
+            val current = dao.notificationById(row.id)
+            if (current?.state == NotificationState.DONE)
+                dao.saveNotification(row.copy(actionVersion = current.actionVersion + 1))
+        }
+        refresh(true)
     }
 
     suspend fun reply(id: Long, version: Long, intent: Intent): Boolean = mutex.withLock {
@@ -117,7 +139,8 @@ class CopyController(private val context: Context, private val container: AppCon
             var row = saved.copy(isVip = options.isVip(saved))
             if (row != saved) dao.saveNotification(row)
             if (row.state != NotificationState.COPY_VISIBLE && row.state != NotificationState.COPY_WAITING) return@forEach
-            val quietUntil = container.repository.quietUntil(row, now)
+            val pause = container.repository.settings.first().pausedUntil?.takeIf { it > now }
+            val quietUntil = pause ?: container.repository.quietUntil(row, now)
             val unselected = row.packageName != context.packageName && !container.repository.isPinned(row.packageName, row.userSerial)
             if (isExpired(row, now) || container.repository.isMuted(row)) {
                 dao.saveNotification(row.copy(state = if (isExpired(row, now)) NotificationState.EXPIRED else NotificationState.DONE,
@@ -140,9 +163,9 @@ class CopyController(private val context: Context, private val container: AppCon
                 dao.saveNotification(row)
             }
             if (row.state == NotificationState.COPY_WAITING && (row.nextShowAt ?: Long.MAX_VALUE) <= now) {
-                val visible = row.copy(state = NotificationState.COPY_VISIBLE, nextShowAt = null,
+                val visible = row.copy(state = NotificationState.COPY_VISIBLE, nextShowAt = null, returnCount = row.returnCount + if (row.firstCopyAt != null) 1 else 0,
                     firstCopyAt = row.firstCopyAt ?: now,
-                    expireAt = if (row.firstCopyAt == null) expiryAt(now, container.repository.settings.first().expireAfterMinutes) else row.expireAt, nextRepeatAt = repeatAt(now, options.repeatMinutes), actionVersion = row.actionVersion + 1)
+                    expireAt = if (row.firstCopyAt == null) expiryAt(now, effectiveExpiry(container.repository.settings.first(), options)) else row.expireAt, nextRepeatAt = repeatAt(now, options.repeatMinutes), actionVersion = row.actionVersion + 1)
                 dao.saveNotification(visible)
                 posts[groupingKey(visible)] = visible.id to false
             } else if (row.state == NotificationState.COPY_VISIBLE && (row.nextRepeatAt ?: Long.MAX_VALUE) <= now) {
@@ -245,7 +268,7 @@ class CopyController(private val context: Context, private val container: AppCon
         val replyRow = members.lastOrNull { container.replyActions.containsKey(it.sourceKey) }?.copy(actionVersion = version)
         val builder = Notification.Builder(context, if (row.isVip) "vip" else "copies")
             .setSmallIcon(com.husarp.holdfast.R.drawable.ic_holdfast).setContentTitle(row.title).setContentText(row.text)
-            .setStyle(Notification.BigTextStyle().bigText(row.text)).setSubText(row.appLabel)
+            .setStyle(Notification.BigTextStyle().bigText(row.text)).setSubText("${row.appLabel} · ${relativeAge(row.postedAt, now)} · back ${row.returnCount}x")
             .setVisibility(Notification.VISIBILITY_PRIVATE).setOnlyAlertOnce(!alert)
             .setContentIntent(pending(row, "open", true)).setDeleteIntent(pending(row, "swipe"))
             .addAction(Notification.Action.Builder(null, "Snooze 1h", pending(row, "snooze1")).build())

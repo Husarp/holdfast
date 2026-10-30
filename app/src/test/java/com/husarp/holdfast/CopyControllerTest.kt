@@ -21,6 +21,65 @@ class CopyControllerTest {
         container.repository.setPinned("example.app", true)
         return container.repository.capture(NotificationFields("example.app", "Example", "key", "messages", "Title", "Text", 100), "com.husarp.holdfast", 200)!!
     }
+    @Test fun pauseDefersCopiesIncludingVipAndResumesAfterDeadline() = runBlocking {
+        val row = source()
+        dao.saveOptions(AppOptions("example.app", vipSenders = "Title"))
+        container.repository.saveSettings(Settings(pausedUntil = System.currentTimeMillis() + 60_000))
+        container.copies.originalRemoved("key", true)
+        assertEquals(NotificationState.COPY_WAITING, dao.notificationById(row.id)!!.state)
+        val manager = ApplicationProvider.getApplicationContext<HoldfastApplication>().getSystemService(android.app.NotificationManager::class.java)
+        assertTrue(manager.activeNotifications.none { it.tag == "copy" })
+        container.repository.saveSettings(Settings(pausedUntil = System.currentTimeMillis() - 1))
+        container.copies.recover()
+        assertEquals(NotificationState.COPY_VISIBLE, dao.notificationById(row.id)!!.state)
+        assertEquals(1, manager.activeNotifications.count { it.tag == "copy" })
+    }
+    @Test fun pausePreservesSnooze() = runBlocking {
+        val row = source()
+        container.copies.originalRemoved("key", true)
+        container.copies.snooze(row.id, 3)
+        val deadline = dao.notificationById(row.id)!!.nextShowAt
+        container.repository.saveSettings(Settings(pausedUntil = Long.MAX_VALUE))
+        container.copies.recover()
+        container.repository.saveSettings(Settings())
+        container.copies.recover()
+        assertEquals(deadline, dao.notificationById(row.id)!!.nextShowAt)
+        assertEquals(NotificationState.COPY_WAITING, dao.notificationById(row.id)!!.state)
+    }
+    @Test fun undoRestoresWholeConversation() = runBlocking {
+        val row = source()
+        container.copies.originalRemoved("key", true)
+        val before = dao.notificationById(row.id)!!
+        container.copies.complete(row.id)
+        container.copies.undo(listOf(before))
+        val restored = dao.notificationById(row.id)!!
+        assertEquals(NotificationState.COPY_VISIBLE, restored.state)
+        assertTrue(restored.actionVersion > before.actionVersion)
+    }
+    @Test fun appTimingControlsExpiryAndReturn() = runBlocking {
+        val row = source()
+        container.repository.saveSettings(Settings(returnDelayMinutes = 30, expireAfterMinutes = 60))
+        dao.saveOptions(AppOptions("example.app", returnDelayMinutes = 5, overrideExpiry = true))
+        container.copies.originalRemoved("key", true)
+        assertNull(dao.notificationById(row.id)!!.expireAt)
+        val now = System.currentTimeMillis()
+        container.copies.swipe(row.id)
+        assertTrue(dao.notificationById(row.id)!!.nextShowAt!! in (now + 300_000)..(System.currentTimeMillis() + 300_000))
+    }
+    @Test fun bringBackStillRespectsSelectionAndMuteRules() = runBlocking {
+        val row = source()
+        container.copies.originalRemoved("key", true)
+        container.copies.complete(row.id)
+        container.repository.setPinned("example.app", false)
+        val event = NotificationEvent(notificationId = row.id, packageName = row.packageName, appLabel = row.appLabel, title = row.title, text = row.text, capturedAt = row.postedAt)
+        container.copies.bringBack(event)
+        assertEquals(NotificationState.COPY_WAITING, dao.notificationById(row.id)!!.state)
+        container.repository.setPinned("example.app", true)
+        dao.addRule(MuteRule(packageName = row.packageName, kind = "Title", value = "Title"))
+        container.copies.recover()
+        assertEquals(NotificationState.DONE, dao.notificationById(row.id)!!.state)
+    }
+
     @After fun close() = container.database.close()
     @Test fun newArrivalAndDismissDoNotConsumeSnoozedConversation() = runBlocking {
         val first = source()
@@ -343,7 +402,9 @@ class CopyControllerTest {
         container.copies.recover()
         val copy = manager.activeNotifications.single().notification
         assertEquals(android.app.Notification.VISIBILITY_PRIVATE, copy.visibility)
-        assertEquals("Example", copy.extras.getCharSequence(android.app.Notification.EXTRA_SUB_TEXT))
+        val subtext = copy.extras.getCharSequence(android.app.Notification.EXTRA_SUB_TEXT).toString()
+        assertTrue(subtext.startsWith("Example · "))
+        assertTrue(subtext.endsWith(" · back 0x"))
         assertNotNull(copy.contentIntent); assertNotNull(copy.deleteIntent)
         assertEquals(3, copy.actions.size)
         container.copies.complete(row.id)

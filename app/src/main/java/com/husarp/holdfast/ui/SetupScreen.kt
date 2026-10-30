@@ -91,7 +91,7 @@ fun SetupScreen() {
             Text("Pinned copies channel is blocked. Enable it in notification settings.")
         }
         Text("If posting is blocked, copies stay in Pinned. Enable notifications and reopen Holdfast to restore them.")
-        if (com.husarp.holdfast.BuildConfig.DEBUG) Button(onClick = {
+        Button(onClick = {
             error = if (com.husarp.holdfast.notifications.sendTestNotification(context)) null
                 else "Notifications or the Test source channel are blocked. Enable them in Android Settings."
         }) { Text("Send test notification") }

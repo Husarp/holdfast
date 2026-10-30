@@ -2,7 +2,6 @@ package com.husarp.holdfast.notifications
 
 import com.husarp.holdfast.data.CapturedNotification
 import com.husarp.holdfast.data.NotificationState
-import com.husarp.holdfast.BuildConfig
 
 // Plain fields keep filtering and mapping testable without Android notification objects.
 data class NotificationFields(
@@ -29,7 +28,7 @@ fun mapNotification(
     now: Long,
     existing: CapturedNotification? = null,
 ): CapturedNotification? {
-    val debug = BuildConfig.DEBUG && fields.debugSource && fields.packageName == ownPackage && fields.channelId == DEBUG_CHANNEL
+    val debug = fields.debugSource && fields.packageName == ownPackage && fields.channelId == DEBUG_CHANNEL
     if ((!pinned && !debug) || (fields.packageName == ownPackage && !debug) || fields.ongoing || fields.foregroundService || fields.groupSummary) return null
     val newOccurrence = existing != null && (existing.state == NotificationState.DONE || existing.state == NotificationState.EXPIRED) && fields.postedAt > existing.updatedAt
     val initial = existing?.takeUnless { newOccurrence } ?: CapturedNotification(

@@ -47,10 +47,12 @@ class HoldfastListenerService : NotificationListenerService() {
     override fun onListenerConnected() {
         super.onListenerConnected()
         container.listenerConnected.value = true
+        listenerHealth(this, true)
         val active = try {
             activeNotifications ?: return
         } catch (_: SecurityException) {
             container.listenerConnected.value = false
+        listenerHealth(this, false)
             return
         }
         events.trySend {
@@ -71,12 +73,12 @@ class HoldfastListenerService : NotificationListenerService() {
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
         container.listenerConnected.value = false
+        listenerHealth(this, false)
         try { requestRebind(android.content.ComponentName(this, HoldfastListenerService::class.java)) }
         catch (_: SecurityException) { }
     }
 
-    private fun isDebugSource(sbn: StatusBarNotification) = com.husarp.holdfast.BuildConfig.DEBUG &&
-        sbn.packageName == packageName && sbn.notification.channelId == DEBUG_CHANNEL
+    private fun isDebugSource(sbn: StatusBarNotification) = sbn.packageName == packageName && sbn.notification.channelId == DEBUG_CHANNEL
 
     private suspend fun capture(sbn: StatusBarNotification) {
         val notification = sbn.notification
@@ -116,6 +118,7 @@ class HoldfastListenerService : NotificationListenerService() {
 
     override fun onDestroy() {
         container.listenerConnected.value = false
+        listenerHealth(this, false)
         events.close()
         scope.cancel()
         super.onDestroy()

@@ -23,9 +23,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        com.husarp.holdfast.update.Updates.onResume(this)
         val container = (application as HoldfastApplication).container
         container.scope.launch { com.husarp.holdfast.location.Places(applicationContext).restore(); container.copies.recover() }
     }
+
+    override fun onPause() { com.husarp.holdfast.update.Updates.onPause(); super.onPause() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -33,11 +36,16 @@ class MainActivity : ComponentActivity() {
         setContent {
             com.husarp.holdfast.ui.HoldfastTheme {
                 val nav = rememberNavController()
+                androidx.compose.runtime.LaunchedEffect(Unit) {
+                    if (intent.getBooleanExtra("setup", false)) nav.navigate("Setup")
+                    if (intent.getBooleanExtra("pause", false)) nav.navigate("Pause")
+                }
                 val entry by nav.currentBackStackEntryAsState()
                 val route = entry?.destination?.route ?: "Pinned"
                 Scaffold(topBar = {
                     @OptIn(ExperimentalMaterial3Api::class)
-                    TopAppBar(title = { Text(if (route == "Stats") "Statistics" else route) },
+                    MediumTopAppBar(title = { Text(if (route == "Stats") "Statistics" else route.substringBefore("/")) },
+                        actions = { if (route == "Pinned") com.husarp.holdfast.ui.PauseControls() },
                         navigationIcon = {
                             if (route !in listOf("Pinned", "Apps", "History", "Settings"))
                                 TextButton(onClick = { nav.popBackStack() }) { Text("Back") }
@@ -52,18 +60,23 @@ class MainActivity : ComponentActivity() {
                     }
                 }) { padding ->
                     NavHost(nav, startDestination = "Pinned", modifier = Modifier.padding(padding).consumeWindowInsets(padding)) {
-                        composable("Apps") { AppsScreen(appsViewModel) }
-                        composable("Pinned") { com.husarp.holdfast.ui.PinnedScreen { nav.navigate("Setup") } }
+                        composable("Apps") { AppsScreen(appsViewModel) { nav.navigate(it) } }
+                        composable("Pinned") { com.husarp.holdfast.ui.PinnedScreen(openSetup = { nav.navigate("Setup") }, navigate = { nav.navigate(it) }) }
                         composable("History") { com.husarp.holdfast.ui.HistoryScreen() }
                         composable("Stats") { com.husarp.holdfast.ui.StatsScreen() }
                         composable("Places") { com.husarp.holdfast.ui.PlacesScreen() }
                         composable("Backup") { com.husarp.holdfast.ui.BackupScreen() }
                         composable("Profiles") { com.husarp.holdfast.ui.ProfilesScreen() }
+                        composable("Pause") { com.husarp.holdfast.ui.PauseControls(initiallyExpanded = true) }
+                        composable("Rules/{app}") { com.husarp.holdfast.ui.RulesScreen(it.arguments?.getString("app").orEmpty()) }
+                        composable("Profiles/{app}") { com.husarp.holdfast.ui.ProfilesScreen(it.arguments?.getString("app").orEmpty()) }
                         composable("Rules") { com.husarp.holdfast.ui.RulesScreen() }
                         composable("Setup") { SetupScreen() }
                         composable("Timing") {
                             Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) { com.husarp.holdfast.ui.TimingSettings() }
                         }
+                        composable("Updates") { com.husarp.holdfast.update.UpdatesScreen() }
+                        composable("What’s new") { com.husarp.holdfast.update.WhatsNewScreen() }
                         composable("Settings") { com.husarp.holdfast.ui.SettingsScreen { nav.navigate(it) } }
                     }
                 }
