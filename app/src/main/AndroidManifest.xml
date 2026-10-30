@@ -12,7 +12,7 @@
         </intent>
     </queries>
     <application android:name=".HoldfastApplication" android:allowBackup="false" android:fullBackupContent="false" android:dataExtractionRules="@xml/data_extraction_rules"
-        android:label="Holdfast" android:theme="@style/Theme.Holdfast" android:supportsRtl="true">
+        android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher" android:label="Holdfast" android:theme="@style/Theme.Holdfast" android:supportsRtl="true">
         <provider android:name="androidx.startup.InitializationProvider"
             android:authorities="${applicationId}.androidx-startup" android:exported="false" tools:node="merge">
             <meta-data android:name="androidx.work.WorkManagerInitializer" tools:node="remove" />

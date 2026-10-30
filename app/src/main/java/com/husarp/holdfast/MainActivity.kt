@@ -1,5 +1,7 @@
 package com.husarp.holdfast
 
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.ui.unit.dp
 import android.os.Bundle
 import kotlinx.coroutines.launch
 import androidx.activity.viewModels
@@ -9,7 +11,7 @@ import com.husarp.holdfast.ui.SetupScreen
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.*
 import androidx.compose.runtime.getValue
@@ -27,39 +29,42 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         setContent {
-            MaterialTheme {
+            com.husarp.holdfast.ui.HoldfastTheme {
                 val nav = rememberNavController()
                 val entry by nav.currentBackStackEntryAsState()
-                Scaffold(bottomBar = {
+                val route = entry?.destination?.route ?: "Pinned"
+                Scaffold(topBar = {
+                    @OptIn(ExperimentalMaterial3Api::class)
+                    TopAppBar(title = { Text(if (route == "Stats") "Statistics" else route) },
+                        navigationIcon = {
+                            if (route !in listOf("Pinned", "Apps", "History", "Settings"))
+                                TextButton(onClick = { nav.popBackStack() }) { Text("Back") }
+                        })
+                }, bottomBar = {
                     NavigationBar {
-                        listOf("Apps", "Pinned", "Settings").forEach { screen ->
-                            NavigationBarItem(selected = entry?.destination?.route == screen,
+                        listOf("Pinned", "Apps", "History", "Settings").forEach { screen ->
+                            NavigationBarItem(selected = route == screen || (screen == "Settings" && route !in listOf("Pinned", "Apps", "History")),
                                 onClick = { nav.navigate(screen) { popUpTo(nav.graph.startDestinationId) { saveState = true }; launchSingleTop = true; restoreState = true } },
-                                icon = { Text(screen.take(1)) }, label = { Text(screen) })
+                                icon = { Icon(com.husarp.holdfast.ui.screenIcon(screen), null) }, label = { Text(screen) })
                         }
                     }
                 }) { padding ->
-                    NavHost(nav, startDestination = "Apps", modifier = Modifier.padding(padding)) {
+                    NavHost(nav, startDestination = "Pinned", modifier = Modifier.padding(padding).consumeWindowInsets(padding)) {
                         composable("Apps") { AppsScreen(appsViewModel) }
-                        composable("Pinned") { com.husarp.holdfast.ui.PinnedScreen() }
+                        composable("Pinned") { com.husarp.holdfast.ui.PinnedScreen { nav.navigate("Setup") } }
                         composable("History") { com.husarp.holdfast.ui.HistoryScreen() }
                         composable("Stats") { com.husarp.holdfast.ui.StatsScreen() }
                         composable("Places") { com.husarp.holdfast.ui.PlacesScreen() }
                         composable("Backup") { com.husarp.holdfast.ui.BackupScreen() }
                         composable("Profiles") { com.husarp.holdfast.ui.ProfilesScreen() }
                         composable("Rules") { com.husarp.holdfast.ui.RulesScreen() }
-                        composable("Settings") {
-                            Column {
-                                com.husarp.holdfast.ui.SpamHints()
-                                Row(Modifier.horizontalScroll(rememberScrollState())) {
-                                    listOf("History", "Stats", "Rules", "Profiles", "Backup", "Places").forEach { screen ->
-                                        TextButton(onClick = { nav.navigate(screen) }) { Text(screen) }
-                                    }
-                                }
-                                Box(Modifier.weight(1f)) { SetupScreen() }
-                            }
+                        composable("Setup") { SetupScreen() }
+                        composable("Timing") {
+                            Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) { com.husarp.holdfast.ui.TimingSettings() }
                         }
+                        composable("Settings") { com.husarp.holdfast.ui.SettingsScreen { nav.navigate(it) } }
                     }
                 }
             }

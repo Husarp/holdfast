@@ -21,7 +21,8 @@ fun SpamHints() {
         }
     }
     hints.filter { !it.answered }.forEach { hint ->
-        Text("${hint.appLabel} sent ${hint.count} notifications you didn't open. Mute?")
+        ListItem(headlineContent = { Text(hint.appLabel) }, leadingContent = { AppIcon(hint.packageName) },
+            supportingContent = { Text("${hint.count} notifications you didn't open. Mute?") })
         TextButton(onClick = { scope.launch { c.repository.answerSpam(hint, true); c.copies.recover() } }) { Text("Mute") }
         TextButton(onClick = { scope.launch { c.repository.answerSpam(hint, false) } }) { Text("Keep") }
     }

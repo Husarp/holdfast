@@ -81,19 +81,22 @@ class HoldfastListenerService : NotificationListenerService() {
     private suspend fun capture(sbn: StatusBarNotification) {
         val notification = sbn.notification
         val flags = notification.flags
+        val serial = getSystemService(android.os.UserManager::class.java).getSerialNumberForUser(sbn.user)
+        if (serial < 0) return
         // Check eligibility before loading another app's label or reading its content.
-        if ((!isDebugSource(sbn) && (sbn.packageName == packageName || !container.repository.isPinned(sbn.packageName))) ||
+        if ((!isDebugSource(sbn) && (sbn.packageName == packageName || !container.repository.isPinned(sbn.packageName, serial))) ||
             flags and (Notification.FLAG_ONGOING_EVENT or Notification.FLAG_FOREGROUND_SERVICE or Notification.FLAG_GROUP_SUMMARY) != 0) return
         val label = try {
             packageManager.getApplicationLabel(packageManager.getApplicationInfo(sbn.packageName, 0)).toString()
         } catch (_: PackageManager.NameNotFoundException) {
             sbn.packageName
         }
-        val fields = NotificationFields(sbn.packageName, label, sbn.key, notification.channelId,
+        val badgedLabel = packageManager.getUserBadgedLabel(label, sbn.user).toString()
+        val fields = NotificationFields(sbn.packageName, badgedLabel, sbn.key, notification.channelId,
             notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString(),
             (notification.extras.getCharSequence(Notification.EXTRA_BIG_TEXT)
                 ?: notification.extras.getCharSequence(Notification.EXTRA_TEXT))?.toString(), sbn.postTime, debugSource = isDebugSource(sbn),
-            shortcutId = notification.shortcutId,
+            shortcutId = notification.shortcutId, userSerial = serial,
             sender = androidx.core.app.NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(notification)?.messages?.lastOrNull()?.person?.name?.toString())
         notification.actions?.firstOrNull { it.remoteInputs?.isNotEmpty() == true }?.let { container.replyActions[sbn.key] = it }
             ?: container.replyActions.remove(sbn.key)

@@ -41,13 +41,13 @@ class HoldfastRepository(private val database: HoldfastDatabase, private val loc
     val pinnedApps = combine(dao.observePinnedApps(), settingsFlow()) { rows, settings -> rows.filter { it.profileId == settings.activeProfileId } }
     val notifications = dao.observeNotifications()
     val settings = dao.observeSettings().map { it ?: Settings() }
-    suspend fun setPinned(packageName: String, enabled: Boolean) = dao.savePinnedApp(PinnedApp(packageName, enabled, activeProfile()))
-    suspend fun isPinned(packageName: String) = dao.isPinned(packageName, activeProfile()) == true
+    suspend fun setPinned(packageName: String, enabled: Boolean, userSerial: Long = 0) = dao.savePinnedApp(PinnedApp(packageName, enabled, activeProfile(), userSerial))
+    suspend fun isPinned(packageName: String, userSerial: Long = 0) = dao.isPinned(packageName, activeProfile(), userSerial) == true
     suspend fun saveSettings(settings: Settings) = dao.saveSettings(settings)
     suspend fun capture(fields: NotificationFields, ownPackage: String, now: Long): CapturedNotification? =
         notificationMutex.withLock { database.withTransaction {
             val previous = dao.notification(fields.sourceKey)
-            val mapped = mapNotification(fields, ownPackage, isPinned(fields.packageName), now, previous)
+            val mapped = mapNotification(fields, ownPackage, isPinned(fields.packageName, fields.userSerial), now, previous)
                 ?: return@withTransaction null
             mapped.channelId?.let { dao.saveChannel(SeenChannel(mapped.packageName, it)) }
             val options = options(mapped)
@@ -62,7 +62,7 @@ class HoldfastRepository(private val database: HoldfastDatabase, private val loc
             }
             if (previous == null || mapped.actionVersion != previous.actionVersion) {
                 dao.saveEvent(NotificationEvent(notificationId = saved.id, packageName = saved.packageName,
-                    appLabel = saved.appLabel, title = saved.title, text = saved.text, capturedAt = now))
+                    userSerial = saved.userSerial, appLabel = saved.appLabel, title = saved.title, text = saved.text, capturedAt = now))
             } else dao.updateEvent(saved.id, saved.title, saved.text, saved.appLabel)
             saved
         } }

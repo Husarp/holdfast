@@ -45,7 +45,7 @@ object BackupFormat {
         b.pinned.forEach { require(it.packageName.isNotBlank() && it.profileId in ids) }
         require(b.rules.map { it.id }.distinct().size == b.rules.size)
         require(b.quiet.map { it.id }.distinct().size == b.quiet.size)
-        require(b.pinned.map { it.packageName to it.profileId }.distinct().size == b.pinned.size)
+        require(b.pinned.map { Triple(it.packageName, it.profileId, it.userSerial) }.distinct().size == b.pinned.size)
         require(b.options.map { it.packageName to it.profileId }.distinct().size == b.options.size)
         b.rules.forEach { it.copy(); require(it.packageName.isNotBlank() && it.profileId in ids) }
         b.quiet.forEach { it.copy(); require(it.packageName.isNotBlank() && it.profileId in ids) }

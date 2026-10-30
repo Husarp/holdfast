@@ -19,6 +19,7 @@ data class NotificationFields(
     val groupSummary: Boolean = false,
     val sender: String? = null,
     val shortcutId: String? = null,
+    val userSerial: Long = 0,
 )
 
 fun mapNotification(
@@ -35,7 +36,7 @@ fun mapNotification(
         id = existing?.id ?: 0, actionVersion = (existing?.actionVersion ?: -1) + 1,
         packageName = fields.packageName, appLabel = fields.appLabel, sourceKey = fields.sourceKey,
         channelId = fields.channelId, title = fields.title.orEmpty(), text = fields.text.orEmpty(),
-        postedAt = fields.postedAt, updatedAt = now,
+        postedAt = fields.postedAt, updatedAt = now, userSerial = fields.userSerial,
     )
     return initial.copy(appLabel = fields.appLabel, channelId = fields.channelId,
         title = fields.title.orEmpty(), text = fields.text.orEmpty(), sender = fields.sender, shortcutId = fields.shortcutId, updatedAt = now)

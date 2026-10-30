@@ -22,6 +22,7 @@ fun ProfilesScreen() {
     val options by repo.options.collectAsState(emptyList())
     val pinned by repo.pinnedApps.collectAsState(emptyList())
     val scope = rememberCoroutineScope()
+    var message by remember { mutableStateOf("") }
     var name by remember { mutableStateOf("") }
     var app by remember { mutableStateOf("") }
     var vip by remember { mutableStateOf("") }
@@ -39,7 +40,7 @@ fun ProfilesScreen() {
     LaunchedEffect(Unit) { repo.ensureProfiles() }
     LazyColumn(Modifier.fillMaxSize().padding(16.dp)) {
         item {
-            Text("Profiles", style = MaterialTheme.typography.headlineMedium)
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
             profiles.forEach { profile ->
                 TextButton(onClick = { scope.launch {
                     repo.saveSettings(settings.copy(activeProfileId = profile.id)); container.copies.recover()
@@ -52,14 +53,15 @@ fun ProfilesScreen() {
             }
             Text("App selection and mute rules belong to the active profile.")
             Text("Quiet hours", style = MaterialTheme.typography.titleLarge)
-            pinned.filter { it.enabled }.forEach { row -> TextButton(onClick = { app = row.packageName }) { Text(row.packageName + if (app == row.packageName) " ✓" else "") } }
+            pinned.filter { it.enabled }.forEach { row -> TextButton(onClick = { app = row.packageName }) { Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) { AppIcon(row.packageName, row.userSerial); Text(row.packageName + if (app == row.packageName) " ✓" else "") } } }
+            ActionMessage(message)
             Text("VIP and repeats for selected app")
             OutlinedTextField(vip, { vip = it }, label = { Text("VIP sender names, one per line (exact, ignores case)") })
             OutlinedTextField(repeat, { repeat = it }, label = { Text("Repeat minutes (blank disables)") })
             Row { Checkbox(digest, { digest = it }); Text("Digest only") }
             OutlinedTextField(times, { times = it }, label = { Text("Digest times HH:mm, comma separated") })
             Button(enabled = app.isNotBlank() && parseDigestTimes(times).isNotEmpty() && (repeat.isBlank() || (repeat.toIntOrNull() ?: 0) > 0), onClick = { scope.launch {
-                dao.saveOptions(AppOptions(app, settings.activeProfileId, vip, repeat.toIntOrNull(), digest, times)); container.copies.recover()
+                dao.saveOptions(AppOptions(app, settings.activeProfileId, vip, repeat.toIntOrNull(), digest, times)); container.copies.recover(); message = "App options saved"
             } }) { Text("Save app options") }
             OutlinedTextField(days, { days = it }, label = { Text("Days: Monday=1 … Sunday=7, comma separated") })
             OutlinedTextField(start, { start = it }, label = { Text("Start HH:mm") })
@@ -73,6 +75,7 @@ fun ProfilesScreen() {
             quiet.filter { it.profileId == settings.activeProfileId }.forEach { row ->
                 Text("${row.packageName}: days ${row.days}, ${formatMinute(row.startMinute)}–${formatMinute(row.endMinute)}")
                 TextButton(onClick = { scope.launch { dao.removeQuiet(row.id); container.copies.recover() } }) { Text("Remove") }
+            }
             }
         }
     }

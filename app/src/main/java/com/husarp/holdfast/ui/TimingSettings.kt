@@ -17,7 +17,6 @@ fun TimingSettings() {
     var expiry by rememberSaveable(saved.expireAfterMinutes) { mutableStateOf(saved.expireAfterMinutes?.toString().orEmpty()) }
     var message by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
-    Text("Timing", style = MaterialTheme.typography.headlineMedium)
     OutlinedTextField(delay, { delay = it; message = "" }, label = { Text("Return delay (minutes, 0 = immediate)") }, singleLine = true)
     OutlinedTextField(expiry, { expiry = it; message = "" }, label = { Text("Auto-expire (minutes, empty = off)") }, singleLine = true)
     Text("Auto-expire starts when a copy is first created. Changes apply to new copies and future swipes.")
@@ -31,5 +30,5 @@ fun TimingSettings() {
             message = "Saved"
         }
     }) { Text("Save timing") }
-    if (message.isNotEmpty()) Text(message)
+    if (message.isNotEmpty()) ActionMessage(message)
 }

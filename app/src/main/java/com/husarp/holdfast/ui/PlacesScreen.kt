@@ -13,6 +13,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import com.husarp.holdfast.HoldfastApplication
 import com.husarp.holdfast.data.QuietPlace
 import com.husarp.holdfast.location.*
@@ -45,9 +47,9 @@ fun PlacesScreen() {
         permitted = locationPermitted(context)
         message = if (permitted) "Location enabled" else "Location quiet is off. Precise and background location are required."
     }
-    LazyColumn {
+    LazyColumn(Modifier.fillMaxSize().padding(16.dp)) {
         item {
-            Text("Places", style = MaterialTheme.typography.headlineMedium)
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(if (permitted) "Location quiet is on" else "Location quiet is off")
             Text("Precise location saves your current place. Background location lets Android report entry and exit while Holdfast is closed. Choose Allow all the time in app permissions. Location stays on this device. Alerts may be delayed.")
             Button(onClick = { permission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) }) { Text("Allow precise location") }
@@ -60,7 +62,7 @@ fun PlacesScreen() {
             apps.filter { it.enabled }.forEach { app ->
                 Row {
                     Checkbox(app.packageName in selected, { checked -> selected = if (checked) selected + app.packageName else selected - app.packageName })
-                    Text(app.packageName)
+                    ListItem(headlineContent = { Text(app.packageName) }, leadingContent = { AppIcon(app.packageName, app.userSerial) })
                 }
             }
             Button(enabled = permitted && name.isNotBlank() && selected.isNotEmpty() && (radius.toFloatOrNull()?.let { it.isFinite() && it > 0 } == true), onClick = {
@@ -90,12 +92,14 @@ fun PlacesScreen() {
                     }
                 } catch (_: SecurityException) { permitted = false; message = "Location permission denied." }
             }) { Text("Save current location") }
-            Text(message)
+            ActionMessage(message)
+            if (places.isEmpty()) EmptyState("Save a place to pause notifications while you are there.", screenIcon("Places"))
             places.forEach { place ->
                 Text("${place.name}: ${place.radius.toInt()} m — ${if (permitted && place.inside) "inside" else "outside / off"}")
                 TextButton(onClick = { scope.launch {
                     Places(context).remove(place.id); dao.removePlace(place.id); c.copies.recover()
                 } }) { Text("Remove") }
+            }
             }
         }
     }

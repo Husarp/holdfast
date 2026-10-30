@@ -48,7 +48,7 @@ interface HoldfastDao {
     @Insert suspend fun saveEvent(event: NotificationEvent)
     @Query("SELECT * FROM NotificationEvent ORDER BY capturedAt DESC, id DESC")
     fun observeHistory(): Flow<List<NotificationEvent>>
-    @Query("SELECT packageName, MAX(appLabel) AS appLabel, COUNT(*) AS count FROM NotificationEvent WHERE capturedAt >= :since GROUP BY packageName ORDER BY count DESC, packageName")
+    @Query("SELECT packageName, userSerial, MAX(appLabel) AS appLabel, COUNT(*) AS count FROM NotificationEvent WHERE capturedAt >= :since GROUP BY packageName, userSerial ORDER BY count DESC, packageName")
     suspend fun counts(since: Long): List<AppCount>
     @Query("DELETE FROM NotificationEvent WHERE capturedAt < :cutoff AND notificationId NOT IN (SELECT id FROM CapturedNotification WHERE state IN ('ACTIVE_ORIGINAL', 'COPY_VISIBLE', 'COPY_WAITING'))")
     suspend fun deleteOldEvents(cutoff: Long)
@@ -57,8 +57,8 @@ interface HoldfastDao {
     @Query("SELECT * FROM PinnedApp ORDER BY packageName")
     fun observePinnedApps(): Flow<List<PinnedApp>>
     @Upsert suspend fun savePinnedApp(app: PinnedApp)
-    @Query("SELECT enabled FROM PinnedApp WHERE packageName = :packageName AND profileId = :profileId")
-    suspend fun isPinned(packageName: String, profileId: Long = 1): Boolean?
+    @Query("SELECT enabled FROM PinnedApp WHERE packageName = :packageName AND profileId = :profileId AND userSerial = :userSerial")
+    suspend fun isPinned(packageName: String, profileId: Long = 1, userSerial: Long = 0): Boolean?
     @Query("SELECT * FROM CapturedNotification ORDER BY postedAt DESC")
     fun observeNotifications(): Flow<List<CapturedNotification>>
     @Query("SELECT * FROM CapturedNotification WHERE sourceKey = :sourceKey")

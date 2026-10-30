@@ -6,8 +6,8 @@ import androidx.room.PrimaryKey
 
 enum class NotificationState { ACTIVE_ORIGINAL, COPY_VISIBLE, COPY_WAITING, DONE, EXPIRED }
 
-@Entity(primaryKeys = ["packageName", "profileId"])
-data class PinnedApp(val packageName: String, val enabled: Boolean = true, val profileId: Long = 1)
+@Entity(primaryKeys = ["packageName", "profileId", "userSerial"])
+data class PinnedApp(val packageName: String, val enabled: Boolean = true, val profileId: Long = 1, val userSerial: Long = 0)
 
 @Entity(indices = [Index(value = ["sourceKey"], unique = true)])
 data class CapturedNotification(
@@ -34,6 +34,7 @@ data class CapturedNotification(
     val resumeAt: Long? = null,
     val isVip: Boolean = false,
     val nextRepeatAt: Long? = null,
+    val userSerial: Long = 0,
 )
 
 @Entity
@@ -53,9 +54,10 @@ data class NotificationEvent(
     val title: String,
     val text: String,
     val capturedAt: Long,
+    val userSerial: Long = 0,
 )
 
-data class AppCount(val packageName: String, val appLabel: String, val count: Int)
+data class AppCount(val packageName: String, val appLabel: String, val count: Int, val userSerial: Long = 0)
 
 @Entity
 data class MuteRule(
@@ -128,8 +130,8 @@ data class AppOptions(
 }
 fun repeatAt(now: Long, minutes: Int?): Long? = minutes?.let { now + it * 60_000L }
 
-fun groupingKey(row: CapturedNotification): List<String> = if (row.digest) listOf(row.packageName, "digest")
-    else listOf(row.packageName, "conversation", if (!row.shortcutId.isNullOrBlank()) "shortcut" else "title", row.shortcutId?.takeIf { it.isNotBlank() } ?: row.title)
+fun groupingKey(row: CapturedNotification): List<String> = if (row.digest) listOf(row.packageName, row.userSerial.toString(), "digest")
+    else listOf(row.packageName, row.userSerial.toString(), "conversation", if (!row.shortcutId.isNullOrBlank()) "shortcut" else "title", row.shortcutId?.takeIf { it.isNotBlank() } ?: row.title)
 
 fun parseDigestTimes(value: String): List<java.time.LocalTime> = try {
     value.split(",").map { java.time.LocalTime.parse(it.trim()) }.distinct().sorted()

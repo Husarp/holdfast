@@ -19,6 +19,18 @@ class SelectionRepositoryTest {
     private val repository = HoldfastRepository(database)
     @After fun close() = database.close()
 
+    @Test fun androidProfilesKeepSelectionsSeparate() = runBlocking {
+        repository.setPinned("same.app", true, 0)
+        repository.setPinned("same.app", true, 10)
+        repository.setPinned("same.app", false, 0)
+        assertFalse(repository.isPinned("same.app", 0))
+        assertTrue(repository.isPinned("same.app", 10))
+        assertEquals(2, repository.pinnedApps.first().size)
+    }
+    @Test fun fallbackChoosesProfileLauncherOnlyForOtherUsers() {
+        assertFalse(com.husarp.holdfast.notifications.useProfileLauncher(5, 5))
+        assertTrue(com.husarp.holdfast.notifications.useProfileLauncher(10, 5))
+    }
     @Test fun unknownPackageIsNotSelected() = runBlocking {
         assertFalse(repository.isPinned("missing.app"))
     }

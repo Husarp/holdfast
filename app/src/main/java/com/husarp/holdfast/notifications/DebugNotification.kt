@@ -15,7 +15,7 @@ fun sendTestNotification(context: Context): Boolean {
     val click = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
     return try {
         manager.notify("debug_source", System.currentTimeMillis().toInt(), Notification.Builder(context, DEBUG_CHANNEL)
-            .setSmallIcon(android.R.drawable.ic_dialog_info).setContentTitle("Holdfast test")
+            .setSmallIcon(com.husarp.holdfast.R.drawable.ic_holdfast).setContentTitle("Holdfast test")
             .setContentText("Swipe this notification to create a pinned copy.").setContentIntent(click).build())
         true
     } catch (_: SecurityException) { false }

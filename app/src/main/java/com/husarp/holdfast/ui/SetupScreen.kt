@@ -24,9 +24,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 
-private data class SetupStatus(val listener: Boolean, val posting: Boolean, val exact: Boolean, val battery: Boolean, val copies: Boolean)
+internal data class SetupStatus(val listener: Boolean, val posting: Boolean, val exact: Boolean, val battery: Boolean, val copies: Boolean)
 
-private fun setupStatus(context: Context): SetupStatus {
+internal fun setupStatus(context: Context): SetupStatus {
     val listeners = Settings.Secure.getString(context.contentResolver, "enabled_notification_listeners").orEmpty()
     val listener = listeners.split(':').mapNotNull(ComponentName::unflattenFromString)
         .any { it.packageName == context.packageName && it.className == "${context.packageName}.notifications.HoldfastListenerService" }
@@ -62,8 +62,7 @@ fun SetupScreen() {
             error = "Android blocked this settings screen. Open Android Settings manually."
         }
     }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Setup", style = MaterialTheme.typography.headlineMedium)
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Notification access lets Holdfast read and store full available titles and text from selected apps. All data stays on this device. Turn access off in Android Settings at any time.")
         SetupCard("Notification access", status.listener, "Open notification access") {
             open(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
@@ -92,7 +91,6 @@ fun SetupScreen() {
             Text("Pinned copies channel is blocked. Enable it in notification settings.")
         }
         Text("If posting is blocked, copies stay in Pinned. Enable notifications and reopen Holdfast to restore them.")
-        TimingSettings()
         if (com.husarp.holdfast.BuildConfig.DEBUG) Button(onClick = {
             error = if (com.husarp.holdfast.notifications.sendTestNotification(context)) null
                 else "Notifications or the Test source channel are blocked. Enable them in Android Settings."
@@ -104,7 +102,7 @@ fun SetupScreen() {
 @Composable
 private fun SetupCard(title: String, granted: Boolean, button: String, description: String? = null, action: () -> Unit) {
     Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp)) {
+        Column(Modifier.padding(16.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium)
             Text(if (granted) "Enabled" else "Not enabled")
             description?.let { Text(it) }

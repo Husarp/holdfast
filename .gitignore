@@ -27,3 +27,6 @@ Thumbs.db
 
 # Kotlin compiler cache
 .kotlin/
+
+# Generated screenshot tests output
+app/screenshots/

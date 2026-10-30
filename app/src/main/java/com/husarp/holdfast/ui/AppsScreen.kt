@@ -22,33 +22,39 @@ fun AppsScreen(viewModel: AppsViewModel) {
     val pinned by viewModel.pinnedApps.collectAsStateWithLifecycle(emptyList())
     val loading by viewModel.loading.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
-    var search by rememberSaveable { mutableStateOf("") }
     LifecycleResumeEffect(Unit) {
         viewModel.refresh()
         onPauseOrDispose { }
     }
-    val selected = pinned.filter { it.enabled }.map { it.packageName }.toSet()
+    AppsContent(apps, pinned, loading, error, viewModel::setPinned)
+}
+
+@Composable
+fun AppsContent(apps: List<LaunchableApp>, pinned: List<com.husarp.holdfast.data.PinnedApp>,
+    loading: Boolean = false, error: String? = null, setPinned: (String, Boolean, Long) -> Unit = { _, _, _ -> }) {
+    var search by rememberSaveable { mutableStateOf("") }
+    val selected = pinned.filter { it.enabled }.map { it.packageName to it.userSerial }.toSet()
     val filtered = apps.filter { it.label.contains(search, ignoreCase = true) || it.packageName.contains(search, ignoreCase = true) }
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        Text("Apps", style = MaterialTheme.typography.headlineMedium)
         Text("Choose launchable apps whose notifications Holdfast should capture. Apps without a launcher are not listed.")
         OutlinedTextField(value = search, onValueChange = { search = it }, label = { Text("Search apps") },
             singleLine = true, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp))
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         if (loading) CircularProgressIndicator()
-        else if (filtered.isEmpty()) Text("No matching apps.")
+        else if (filtered.isEmpty()) EmptyState("Choose apps to keep their notifications close.", screenIcon("Apps"))
         LazyColumn {
-            items(filtered, key = { it.packageName }) { app ->
-                val checked = app.packageName in selected
-                Row(Modifier.fillMaxWidth().clickable { viewModel.setPinned(app.packageName, !checked) }
-                    .padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    val icon = remember(app.icon) { app.icon.toBitmap(48, 48).asImageBitmap() }
-                    Image(icon, contentDescription = null, modifier = Modifier.size(40.dp))
-                    Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                        Text(app.label)
-                        Text(app.packageName, style = MaterialTheme.typography.bodySmall)
-                    }
-                    Checkbox(checked = checked, onCheckedChange = { viewModel.setPinned(app.packageName, it) })
+            items(filtered, key = { it.packageName + ":" + it.userSerial }) { app ->
+                val checked = (app.packageName to app.userSerial) in selected
+                Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                    ListItem(
+                        modifier = Modifier.clickable { setPinned(app.packageName, !checked, app.userSerial) },
+                        leadingContent = {
+                            val icon = remember(app.icon) { app.icon.toBitmap(80, 80).asImageBitmap() }
+                            Image(icon, null, Modifier.size(40.dp))
+                        },
+                        headlineContent = { Text(app.label) },
+                        supportingContent = { Text(app.packageName, style = MaterialTheme.typography.bodySmall) },
+                        trailingContent = { Checkbox(checked, { setPinned(app.packageName, it, app.userSerial) }) })
                 }
             }
         }

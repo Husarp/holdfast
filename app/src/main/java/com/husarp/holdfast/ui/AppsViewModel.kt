@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-data class LaunchableApp(val packageName: String, val label: String, val icon: Drawable)
+data class LaunchableApp(val packageName: String, val label: String, val icon: Drawable, val userSerial: Long = 0)
 
 class AppsViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = (application as HoldfastApplication).container.repository
@@ -30,10 +30,15 @@ class AppsViewModel(application: Application) : AndroidViewModel(application) {
                 _apps.value = withContext(Dispatchers.IO) {
                     val app = getApplication<Application>()
                     val pm = app.packageManager
-                    pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
-                        .filter { it.activityInfo.packageName != app.packageName }
-                        .distinctBy { it.activityInfo.packageName }
-                        .map { LaunchableApp(it.activityInfo.packageName, it.loadLabel(pm).toString(), it.loadIcon(pm)) }
+                    val launcher = app.getSystemService(android.content.pm.LauncherApps::class.java)
+                    val users = app.getSystemService(android.os.UserManager::class.java)
+                    launcher.profiles.flatMap { user ->
+                        launcher.getActivityList(null, user).distinctBy { it.componentName.packageName }
+                            .filter { it.componentName.packageName != app.packageName }
+                            .map { LaunchableApp(it.componentName.packageName,
+                                pm.getUserBadgedLabel(it.label, user).toString(),
+                                it.getBadgedIcon(0), users.getSerialNumberForUser(user)) }
+                    }
                         .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
                 }
                 _error.value = null
@@ -45,10 +50,10 @@ class AppsViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun setPinned(packageName: String, enabled: Boolean) {
+    fun setPinned(packageName: String, enabled: Boolean, userSerial: Long = 0) {
         viewModelScope.launch {
             try {
-                repository.setPinned(packageName, enabled)
+                repository.setPinned(packageName, enabled, userSerial)
                 (getApplication<Application>() as HoldfastApplication).container.copies.recover()
                 _error.value = null
             } catch (_: RuntimeException) {

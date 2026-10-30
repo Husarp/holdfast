@@ -22,6 +22,7 @@ fun RulesScreen() {
     val pinned by repository.pinnedApps.collectAsState(initial = emptyList())
     val history by repository.history.collectAsState(initial = emptyList())
     val apps = (pinned.map { it.packageName } + channels.map { it.packageName } + history.map { it.packageName }).distinct().sorted()
+    var message by remember { mutableStateOf("") }
     var app by remember { mutableStateOf("") }
     var kind by remember { mutableStateOf("Title") }
     var value by remember { mutableStateOf("") }
@@ -30,12 +31,12 @@ fun RulesScreen() {
     val scope = rememberCoroutineScope()
     LazyColumn(Modifier.fillMaxSize().padding(16.dp)) {
         item {
-            Text("Mute rules", style = MaterialTheme.typography.headlineMedium)
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text("Rules suppress Holdfast copies. Originals and captured history are kept.")
             Box {
                 TextButton(onClick = { chooseApp = true }) { Text(app.ifEmpty { "Choose app" }) }
                 DropdownMenu(chooseApp, onDismissRequest = { chooseApp = false }) {
-                    apps.forEach { name -> DropdownMenuItem(text = { Text(name) }, onClick = { app = name; value = ""; chooseApp = false }) }
+                    apps.forEach { name -> DropdownMenuItem(text = { Text(name) }, leadingIcon = { AppIcon(name) }, onClick = { app = name; value = ""; chooseApp = false }) }
                 }
             }
             if (apps.isEmpty()) Text("Select an app in Apps first.")
@@ -59,15 +60,18 @@ fun RulesScreen() {
                 scope.launch {
                     repository.notificationMutex.withLock { container.database.dao().addRule(rule.copy(profileId = repository.activeProfile())) }
                     container.copies.recover(false)
+                    message = "Rule added"
                 }
             }) { Text("Add rule") }
-            if (rules.isEmpty()) Text("No mute rules.")
+            ActionMessage(message)
+            if (rules.isEmpty()) EmptyState("Add a rule to silence matching copies.", screenIcon("Rules"))
+            }
         }
         items(rules, key = { it.id }) { rule ->
             Column(Modifier.padding(vertical = 8.dp)) {
-                Text(rule.packageName)
+                ListItem(headlineContent = { Text(rule.packageName) }, leadingContent = { AppIcon(rule.packageName) })
                 Text("${rule.kind}: ${rule.value}")
-                TextButton(onClick = { scope.launch { container.database.dao().removeRule(rule.id) } }) { Text("Remove") }
+                TextButton(onClick = { scope.launch { container.database.dao().removeRule(rule.id); message = "Rule removed" } }) { Text("Remove") }
             }
         }
     }

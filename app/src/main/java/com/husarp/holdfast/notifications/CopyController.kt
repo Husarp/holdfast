@@ -118,7 +118,7 @@ class CopyController(private val context: Context, private val container: AppCon
             if (row != saved) dao.saveNotification(row)
             if (row.state != NotificationState.COPY_VISIBLE && row.state != NotificationState.COPY_WAITING) return@forEach
             val quietUntil = container.repository.quietUntil(row, now)
-            val unselected = row.packageName != context.packageName && !container.repository.isPinned(row.packageName)
+            val unselected = row.packageName != context.packageName && !container.repository.isPinned(row.packageName, row.userSerial)
             if (isExpired(row, now) || container.repository.isMuted(row)) {
                 dao.saveNotification(row.copy(state = if (isExpired(row, now)) NotificationState.EXPIRED else NotificationState.DONE,
                     nextShowAt = null, nextRepeatAt = null, updatedAt = now))
@@ -169,6 +169,17 @@ class CopyController(private val context: Context, private val container: AppCon
 
     @Suppress("DEPRECATION")
     fun open(row: CapturedNotification): Boolean {
+        val users = context.getSystemService(android.os.UserManager::class.java)
+        val personal = users.getSerialNumberForUser(android.os.Process.myUserHandle())
+        if (useProfileLauncher(row.userSerial, personal)) {
+            val user = users.getUserForSerialNumber(row.userSerial) ?: return false
+            try {
+                val info = context.getSystemService(android.content.pm.LauncherApps::class.java)
+                    .getApplicationInfo(row.packageName, 0, user)
+                if (!info.enabled || info.flags and android.content.pm.ApplicationInfo.FLAG_SUSPENDED != 0) return false
+            } catch (_: PackageManager.NameNotFoundException) { return false }
+            catch (_: RuntimeException) { return false }
+        }
         try {
             container.contentIntents.remove(row.sourceKey)?.let {
                 val options = if (android.os.Build.VERSION.SDK_INT >= 34) ActivityOptions.makeBasic()
@@ -179,10 +190,17 @@ class CopyController(private val context: Context, private val container: AppCon
             }
         } catch (_: PendingIntent.CanceledException) { } catch (_: SecurityException) { }
         return try {
+            if (useProfileLauncher(row.userSerial, personal)) {
+                val user = users.getUserForSerialNumber(row.userSerial) ?: return false
+                val launcher = context.getSystemService(android.content.pm.LauncherApps::class.java)
+                val activity = launcher.getActivityList(row.packageName, user).firstOrNull() ?: return false
+                launcher.startMainActivity(activity.componentName, user, null, null)
+                return true
+            }
             val intent = context.packageManager.getLaunchIntentForPackage(row.packageName) ?: return false
             context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             true
-        } catch (_: ActivityNotFoundException) { false } catch (_: SecurityException) { false }
+        } catch (_: RuntimeException) { false }
     }
 
     private fun pending(row: CapturedNotification, action: String, activity: Boolean = false): PendingIntent {
@@ -209,7 +227,7 @@ class CopyController(private val context: Context, private val container: AppCon
         var row = dao.notificationById(input.id) ?: return
         val now = System.currentTimeMillis()
         if (isExpired(row, now) || container.repository.isMuted(row) || container.repository.quietUntil(row, now) != null ||
-            (row.packageName != context.packageName && !container.repository.isPinned(row.packageName))) return
+            (row.packageName != context.packageName && !container.repository.isPinned(row.packageName, row.userSerial))) return
         manager.createNotificationChannel(NotificationChannel("copies", "Pinned copies", NotificationManager.IMPORTANCE_DEFAULT))
         if (!manager.areNotificationsEnabled()) return
         manager.createNotificationChannel(NotificationChannel("vip", "VIP", NotificationManager.IMPORTANCE_HIGH).apply {
@@ -226,7 +244,7 @@ class CopyController(private val context: Context, private val container: AppCon
         }
         val replyRow = members.lastOrNull { container.replyActions.containsKey(it.sourceKey) }?.copy(actionVersion = version)
         val builder = Notification.Builder(context, if (row.isVip) "vip" else "copies")
-            .setSmallIcon(android.R.drawable.ic_dialog_info).setContentTitle(row.title).setContentText(row.text)
+            .setSmallIcon(com.husarp.holdfast.R.drawable.ic_holdfast).setContentTitle(row.title).setContentText(row.text)
             .setStyle(Notification.BigTextStyle().bigText(row.text)).setSubText(row.appLabel)
             .setVisibility(Notification.VISIBILITY_PRIVATE).setOnlyAlertOnce(!alert)
             .setContentIntent(pending(row, "open", true)).setDeleteIntent(pending(row, "swipe"))
@@ -245,7 +263,7 @@ class CopyController(private val context: Context, private val container: AppCon
         members.filter { !it.isVip }.mapNotNull { it.expireAt }.minOrNull()?.let {
             if (members.none { member -> member.isVip }) builder.setTimeoutAfter((it - now).coerceAtLeast(1))
         }
-        try { builder.setLargeIcon(context.packageManager.getApplicationIcon(row.packageName).toBitmap(128, 128)) }
+        try { builder.setLargeIcon(com.husarp.holdfast.ui.profileIcon(context, row.packageName, row.userSerial).toBitmap(128, 128)) }
         catch (_: PackageManager.NameNotFoundException) { }
         try { manager.notify("copy", copyId, builder.build()) } catch (_: SecurityException) { }
     }
@@ -278,7 +296,7 @@ class CopyOpenActivity : Activity() {
             if (row != null && opening != null) container.database.dao().saveOpen(CopyOpen(packageName = row.packageName, openedAt = System.currentTimeMillis()))
             withContext(Dispatchers.Main) {
                 if (row != null && !container.copies.open(row)) android.widget.Toast.makeText(this@CopyOpenActivity,
-                    "The source app is unavailable or cannot be opened.", android.widget.Toast.LENGTH_LONG).show()
+                    "The app is frozen in its profile or is unavailable.", android.widget.Toast.LENGTH_LONG).show()
                 finish()
             }
         }

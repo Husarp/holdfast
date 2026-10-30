@@ -6,6 +6,10 @@ import androidx.compose.runtime.*
 import androidx.compose.material3.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import com.husarp.holdfast.HoldfastApplication
 import com.husarp.holdfast.data.*
 import kotlinx.coroutines.*
@@ -51,13 +55,13 @@ fun BackupScreen() {
             } catch (e: Exception) { message = e.message ?: "Invalid backup" }
         }
     }
-    Column {
-        Text("Export / import", style = MaterialTheme.typography.headlineMedium)
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Icon(screenIcon("Backup"), null)
         Row { Checkbox(history, { history = it }); Text("Include history") }
         Text("Every export includes app selections, rules and VIP names. Optional history includes private notification titles and text. Anyone with the file can read them.")
         Button(onClick = { scope.launch { c.repository.ensureProfiles(); export.launch("holdfast.json") } }) { Text("Export JSON") }
         Button(onClick = { import.launch(arrayOf("application/json", "text/plain")) }) { Text("Import JSON") }
-        Text(message)
+        ActionMessage(message)
     }
     pending?.let { backup ->
         AlertDialog(onDismissRequest = { pending = null }, title = { Text("Replace current rules?") },
