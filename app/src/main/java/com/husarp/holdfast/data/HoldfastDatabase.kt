@@ -5,6 +5,12 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface HoldfastDao {
+    @Query("DELETE FROM TypePolicy") suspend fun clearTypes()
+    @Query("SELECT * FROM TypePolicy ORDER BY id") fun observeTypes(): Flow<List<TypePolicy>>
+    @Query("SELECT * FROM TypePolicy ORDER BY id") suspend fun types(): List<TypePolicy>
+    @Upsert suspend fun saveType(policy: TypePolicy)
+    @Query("DELETE FROM TypePolicy WHERE id = :id") suspend fun removeType(id: Long)
+
     @Query("SELECT * FROM QuietPlace") fun observePlaces(): Flow<List<QuietPlace>>
     @Upsert suspend fun savePlace(place: QuietPlace)
     @Query("DELETE FROM QuietPlace WHERE id = :id") suspend fun removePlace(id: Long)
@@ -16,6 +22,7 @@ interface HoldfastDao {
 @Query("DELETE FROM Profile") suspend fun clearProfiles()
 @Query("DELETE FROM NotificationEvent") suspend fun clearEvents()
 
+    @Query("SELECT * FROM CopyOpen") fun observeOpens(): Flow<List<CopyOpen>>
     @Insert suspend fun saveOpen(open: CopyOpen)
     @Query("SELECT COUNT(*) FROM CopyOpen WHERE packageName = :pkg AND openedAt >= :since") suspend fun opens(pkg: String, since: Long): Int
     @Query("SELECT * FROM SpamDecision") fun observeSpam(): Flow<List<SpamDecision>>
@@ -32,6 +39,16 @@ interface HoldfastDao {
     @Query("SELECT * FROM QuietSchedule") fun observeQuiet(): Flow<List<QuietSchedule>>
     @Query("SELECT * FROM QuietSchedule WHERE profileId = :profileId AND packageName = :packageName")
     suspend fun quiet(profileId: Long, packageName: String): List<QuietSchedule>
+    @androidx.room.Transaction
+    suspend fun replaceQuietDay(profileId: Long, packageName: String, day: Int, ranges: List<QuietSchedule>) {
+        require(day in 1..7)
+        quiet(profileId, packageName).filter { day.toString() in it.days.split(",") }.forEach { old ->
+            removeQuiet(old.id)
+            val remaining = old.days.split(",").filter { it != day.toString() }
+            if (remaining.isNotEmpty()) addQuiet(old.copy(id = 0, days = remaining.joinToString(",")))
+        }
+        ranges.forEach { addQuiet(it.copy(id = 0, profileId = profileId, packageName = packageName, days = "$day")) }
+    }
     @Insert suspend fun addQuiet(schedule: QuietSchedule)
     @Query("DELETE FROM QuietSchedule WHERE id = :id") suspend fun removeQuiet(id: Long)
 
@@ -69,13 +86,43 @@ interface HoldfastDao {
     suspend fun notificationById(id: Long): CapturedNotification?
     @Query("SELECT * FROM CapturedNotification")
     suspend fun allNotifications(): List<CapturedNotification>
-    @Upsert suspend fun saveNotification(notification: CapturedNotification)
+    @Upsert suspend fun upsertNotification(notification: CapturedNotification)
+    @Query("UPDATE NotificationEvent SET heldAsCopy = 1 WHERE id = (SELECT MAX(id) FROM NotificationEvent WHERE notificationId = :id)") suspend fun markHeld(id: Long)
+    @androidx.room.Transaction
+    suspend fun saveNotification(notification: CapturedNotification) {
+        upsertNotification(notification)
+        if (notification.firstCopyAt != null) markHeld(notification.id)
+    }
     @Query("SELECT * FROM Settings WHERE id = 1")
     fun observeSettings(): Flow<Settings?>
     @Upsert suspend fun saveSettings(settings: Settings)
 }
 
-@Database(entities = [QuietPlace::class, CopyOpen::class, SpamDecision::class, PinnedApp::class, CapturedNotification::class, Settings::class, NotificationEvent::class, MuteRule::class, SeenChannel::class, Profile::class, QuietSchedule::class, AppOptions::class], version = 1, exportSchema = false)
+@Database(entities = [TypePolicy::class, QuietPlace::class, CopyOpen::class, SpamDecision::class, PinnedApp::class, CapturedNotification::class, Settings::class, NotificationEvent::class, MuteRule::class, SeenChannel::class, Profile::class, QuietSchedule::class, AppOptions::class], version = 3, exportSchema = false)
 abstract class HoldfastDatabase : RoomDatabase() {
     abstract fun dao(): HoldfastDao
+}
+
+val MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
+    override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE Settings ADD COLUMN holdEverything INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE SeenChannel ADD COLUMN name TEXT NOT NULL DEFAULT ''")
+        db.execSQL("UPDATE SeenChannel SET name = channelId")
+        db.execSQL("ALTER TABLE AppOptions ADD COLUMN mode TEXT")
+        db.execSQL("UPDATE AppOptions SET mode = 'Bring back when I swipe it'")
+        db.execSQL("ALTER TABLE AppOptions ADD COLUMN openAndFinish INTEGER")
+        db.execSQL("ALTER TABLE AppOptions ADD COLUMN buttons TEXT NOT NULL DEFAULT 'snooze:60|dismiss|reply'")
+        db.execSQL("ALTER TABLE AppOptions ADD COLUMN mutedUntil INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("INSERT OR IGNORE INTO AppOptions (packageName, profileId, mode, buttons, mutedUntil, vipSenders, returnDelayMinutes, overrideExpiry, expireAfterMinutes, repeatMinutes, digestOnly, digestTimes) SELECT packageName, profileId, 'Bring back when I swipe it', 'snooze:60|dismiss|reply', 0, '', NULL, 0, NULL, NULL, 0, '09:00,18:00' FROM PinnedApp")
+        db.execSQL("CREATE TABLE IF NOT EXISTS TypePolicy (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, packageName TEXT NOT NULL, profileId INTEGER NOT NULL, kind TEXT NOT NULL, value TEXT NOT NULL, mode TEXT, openAndFinish INTEGER, buttons TEXT)")
+    }
+}
+
+val MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {
+    override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE NotificationEvent ADD COLUMN heldAsCopy INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("UPDATE NotificationEvent SET heldAsCopy = 1 WHERE notificationId IN (SELECT id FROM CapturedNotification WHERE firstCopyAt IS NOT NULL)")
+        db.execSQL("ALTER TABLE QuietPlace ADD COLUMN profileId INTEGER NOT NULL DEFAULT 1")
+        db.execSQL("UPDATE QuietPlace SET profileId = COALESCE((SELECT activeProfileId FROM Settings WHERE id = 1), 1)")
+    }
 }

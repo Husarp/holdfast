@@ -25,7 +25,8 @@ class HoldfastApplication : Application(), androidx.work.Configuration.Provider 
 
 class AppContainer(application: Application) {
     val database = Room.databaseBuilder(application, HoldfastDatabase::class.java, "holdfast.db")
-        .fallbackToDestructiveMigration(true).build()
+        .addMigrations(com.husarp.holdfast.data.MIGRATION_1_2, com.husarp.holdfast.data.MIGRATION_2_3).build()
+    val appearance = com.husarp.holdfast.notifications.OriginalAppearance(application)
     val replyActions = ConcurrentHashMap<String, android.app.Notification.Action>()
     val contentIntents = ConcurrentHashMap<String, PendingIntent>()
     val listenerConnected = kotlinx.coroutines.flow.MutableStateFlow(false)

@@ -24,15 +24,15 @@ class QuickReplyTest {
             .addRemoteInput(RemoteInput.Builder("text").setLabel("Reply").build()).build()
         c.copies.originalRemoved("key", true)
         val manager = app.getSystemService(NotificationManager::class.java)
-        assertEquals(listOf("Snooze 1h", "Reply", "Dismiss"), manager.activeNotifications.single().notification.actions.map { it.title.toString() })
+        assertEquals(listOf("Snooze 60m", "Dismiss", "Reply"), manager.activeNotifications.single().notification.actions.map { it.title.toString() })
         val actions = manager.activeNotifications.single().notification.actions
-        assertNotEquals(org.robolectric.Shadows.shadowOf(actions[1].actionIntent).requestCode,
-            org.robolectric.Shadows.shadowOf(actions[2].actionIntent).requestCode)
-        assertFalse(actions[1].actionIntent.isImmutable)
-        assertTrue(actions[2].actionIntent.isImmutable)
+        assertNotEquals(org.robolectric.Shadows.shadowOf(actions[2].actionIntent).requestCode,
+            org.robolectric.Shadows.shadowOf(actions[1].actionIntent).requestCode)
+        assertFalse(actions[2].actionIntent.isImmutable)
+        assertTrue(actions[1].actionIntent.isImmutable)
         c.replyActions.clear()
         c.copies.recover()
-        assertEquals("Snooze 3h", manager.activeNotifications.single().notification.actions[1].title)
+        assertEquals(listOf("Snooze 60m", "Dismiss"), manager.activeNotifications.single().notification.actions.map { it.title.toString() })
         c.database.close()
     }
 
@@ -89,7 +89,7 @@ class QuickReplyTest {
         c.copies.originalRemoved("second", true)
         c.copies.recover()
         val manager = app.getSystemService(NotificationManager::class.java)
-        assertEquals("Reply", manager.activeNotifications.single().notification.actions[1].title)
+        assertEquals("Reply", manager.activeNotifications.single().notification.actions[2].title)
         val intent = Intent()
         RemoteInput.addResultsToIntent(arrayOf(remote), intent, android.os.Bundle().apply { putCharSequence("reply", "Hello") })
         assertTrue(c.copies.reply(second.id, c.database.dao().notificationById(second.id)!!.actionVersion, intent))

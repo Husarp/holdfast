@@ -17,12 +17,27 @@ class CopyController(private val context: Context, private val container: AppCon
     private val dao get() = container.database.dao()
     private val manager get() = context.getSystemService(NotificationManager::class.java)
 
+    suspend fun removed(key: String, reason: Int) {
+        val row = dao.notification(key) ?: return
+        val mode = container.repository.policy(row).mode
+        if (mode == CopyMode.TAKE_OVER) return
+        originalRemoved(key, copiesOnRemoval(mode, reason))
+    }
+
+    suspend fun takeOver(id: Long) = mutex.withLock {
+        val row = dao.notificationById(id) ?: return@withLock
+        if (row.state != NotificationState.ACTIVE_ORIGINAL) { refresh(); return@withLock }
+        dao.saveNotification(row.copy(state = NotificationState.COPY_WAITING, nextShowAt = System.currentTimeMillis(), copyId = row.id.toInt()))
+        refresh()
+    }
+
     suspend fun originalRemoved(key: String, userDismissal: Boolean) = mutex.withLock {
         val row = dao.notification(key) ?: return@withLock
         if (row.digest && !userDismissal && (row.state == NotificationState.COPY_WAITING || row.state == NotificationState.COPY_VISIBLE)) {
             dao.saveNotification(row.copy(state = NotificationState.DONE, nextShowAt = null, nextRepeatAt = null, updatedAt = System.currentTimeMillis()))
             container.contentIntents.remove(key)
             container.replyActions.remove(key)
+            container.appearance.originals.remove(key)
             refresh()
             return@withLock
         }
@@ -31,6 +46,7 @@ class CopyController(private val context: Context, private val container: AppCon
             dao.saveNotification(row.copy(state = NotificationState.DONE, updatedAt = System.currentTimeMillis()))
             container.contentIntents.remove(key)
             container.replyActions.remove(key)
+            container.appearance.originals.remove(key)
             return@withLock
         }
         val options = container.repository.options(row)
@@ -55,17 +71,41 @@ class CopyController(private val context: Context, private val container: AppCon
         refresh()
     }
 
-    suspend fun snooze(id: Long, hours: Int, version: Long? = null) = mutex.withLock {
-        require(hours == 1 || hours == 3)
+    suspend fun snooze(id: Long, hours: Int, version: Long? = null) = snoozeTo(id, System.currentTimeMillis() + hours * 3_600_000L, version)
+
+    suspend fun snoozeTo(id: Long, until: Long, version: Long? = null) = mutex.withLock {
         val row = dao.notificationById(id) ?: return@withLock
         if (version != null && version != row.actionVersion) return@withLock
         if (row.state != NotificationState.COPY_VISIBLE) return@withLock
         val now = System.currentTimeMillis()
         if (isExpired(row, now)) { refresh(); return@withLock }
         group(row).forEach { dao.saveNotification(it.copy(state = NotificationState.COPY_WAITING,
-            nextShowAt = now + hours * 3_600_000L, updatedAt = now, actionVersion = row.actionVersion + 1)) }
+            nextShowAt = until, updatedAt = now, actionVersion = row.actionVersion + 1)) }
         row.copyId?.let { manager.cancel("copy", it) }
         refresh()
+    }
+
+    suspend fun action(id: Long, version: Long, action: String) {
+        val row = dao.notificationById(id) ?: return
+        if (row.actionVersion != version || row.state != NotificationState.COPY_VISIBLE) return
+        when {
+            action.startsWith("snooze:") && validButton(action) -> snoozeTo(id, System.currentTimeMillis() + action.substringAfter(':').toLong() * 60_000L, version)
+            action.startsWith("until:") && validButton(action) -> snoozeTo(id, snoozeUntil(System.currentTimeMillis(), action.substringAfter(':')), version)
+            action.startsWith("tomorrow:") && validButton(action) -> snoozeTo(id, snoozeTomorrow(System.currentTimeMillis(), action.substringAfter(':')), version)
+            action == "done" || action == "dismiss" -> complete(id, version)?.let { container.contentIntents.remove(it.sourceKey) }
+            action == "muteToday" -> mutex.withLock {
+                if (dao.notificationById(id)?.let { it.actionVersion == version && it.state == NotificationState.COPY_VISIBLE } != true) return@withLock
+                val options = container.repository.options(row)
+                dao.saveOptions(options.copy(mutedUntil = tomorrow(System.currentTimeMillis())))
+                refresh()
+            }
+            action == "muteType" -> mutex.withLock {
+                if (dao.notificationById(id)?.let { it.actionVersion == version && it.state == NotificationState.COPY_VISIBLE } != true) return@withLock
+                dao.saveType(TypePolicy(packageName = row.packageName, profileId = container.repository.activeProfile(),
+                    kind = if (row.channelId != null) "Channel" else "Title", value = row.channelId ?: row.title.ifBlank { row.text.ifBlank { row.sourceKey } }, mode = CopyMode.OFF))
+                refresh()
+            }
+        }
     }
 
     suspend fun complete(id: Long, version: Long? = null): CapturedNotification? = mutex.withLock {
@@ -73,7 +113,7 @@ class CopyController(private val context: Context, private val container: AppCon
         if (version != null && version != row.actionVersion) return@withLock null
         if (row.state != NotificationState.COPY_VISIBLE && row.state != NotificationState.COPY_WAITING) return@withLock null
         if (isExpired(row, System.currentTimeMillis())) { refresh(); return@withLock null }
-        group(row).forEach { container.replyActions.remove(it.sourceKey); dao.saveNotification(it.copy(state = NotificationState.DONE, nextShowAt = null, nextRepeatAt = null, updatedAt = System.currentTimeMillis())); if (it.id != row.id) container.contentIntents.remove(it.sourceKey) }
+        group(row).forEach { container.replyActions.remove(it.sourceKey); container.appearance.originals.remove(it.sourceKey); dao.saveNotification(it.copy(state = NotificationState.DONE, nextShowAt = null, nextRepeatAt = null, updatedAt = System.currentTimeMillis())); if (it.id != row.id) container.contentIntents.remove(it.sourceKey) }
         row.copyId?.let { manager.cancel("copy", it) }
         refresh()
         row
@@ -123,7 +163,7 @@ class CopyController(private val context: Context, private val container: AppCon
         if (clockChanged) {
             val now = System.currentTimeMillis()
             dao.allNotifications().filter { it.digest && it.firstCopyAt == null && it.state == NotificationState.COPY_WAITING }.forEach { row ->
-                val due = nextDigestAt(now, parseDigestTimes(container.repository.options(row).digestTimes))
+                val due = nextWeeklyDigestAt(now, container.repository.options(row).digestTimes)
                 dao.saveNotification(if (row.policyDeferred) row.copy(resumeAt = due) else row.copy(nextShowAt = due))
             }
         }
@@ -140,15 +180,17 @@ class CopyController(private val context: Context, private val container: AppCon
             if (row != saved) dao.saveNotification(row)
             if (row.state != NotificationState.COPY_VISIBLE && row.state != NotificationState.COPY_WAITING) return@forEach
             val pause = container.repository.settings.first().pausedUntil?.takeIf { it > now }
-            val quietUntil = pause ?: container.repository.quietUntil(row, now)
+            val mutedUntil = options.mutedUntil.takeIf { it > now }
+            val quietUntil = listOfNotNull(pause, mutedUntil, container.repository.quietUntil(row, now)).maxOrNull()
             val unselected = row.packageName != context.packageName && !container.repository.isPinned(row.packageName, row.userSerial)
-            if (isExpired(row, now) || container.repository.isMuted(row)) {
+            if (isExpired(row, now) || (mutedUntil == null && container.repository.isMuted(row))) {
                 dao.saveNotification(row.copy(state = if (isExpired(row, now)) NotificationState.EXPIRED else NotificationState.DONE,
                     nextShowAt = null, nextRepeatAt = null, updatedAt = now))
                 row.copyId?.let { manager.cancel("copy", it) }
-                group(row).filter { it.id != row.id && it.state == NotificationState.COPY_VISIBLE }.forEach { posts[groupingKey(it)] = it.id to false }
+                group(row).filter { it.id != row.id && it.state == NotificationState.COPY_VISIBLE }.forEach { posts[copyGroupKey(it)] = it.id to false }
                 container.contentIntents.remove(row.sourceKey)
                 container.replyActions.remove(row.sourceKey)
+                container.appearance.originals.remove(row.sourceKey)
                 return@forEach
             }
             if (quietUntil != null || unselected) {
@@ -167,19 +209,19 @@ class CopyController(private val context: Context, private val container: AppCon
                     firstCopyAt = row.firstCopyAt ?: now,
                     expireAt = if (row.firstCopyAt == null) expiryAt(now, effectiveExpiry(container.repository.settings.first(), options)) else row.expireAt, nextRepeatAt = repeatAt(now, options.repeatMinutes), actionVersion = row.actionVersion + 1)
                 dao.saveNotification(visible)
-                posts[groupingKey(visible)] = visible.id to false
+                posts[copyGroupKey(visible)] = visible.id to false
             } else if (row.state == NotificationState.COPY_VISIBLE && (row.nextRepeatAt ?: Long.MAX_VALUE) <= now) {
                 val repeated = row.copy(nextRepeatAt = repeatAt(now, options.repeatMinutes))
                 group(row).forEach { dao.saveNotification(it.copy(nextRepeatAt = repeated.nextRepeatAt)) }
-                posts[groupingKey(repeated)] = repeated.id to true
+                posts[copyGroupKey(repeated)] = repeated.id to true
             } else if (row.state == NotificationState.COPY_VISIBLE) {
                 if (options.repeatMinutes == null && row.nextRepeatAt != null || options.repeatMinutes != null && row.nextRepeatAt == null)
                     dao.saveNotification(row.copy(nextRepeatAt = repeatAt(now, options.repeatMinutes)))
-                if (repost) posts.putIfAbsent(groupingKey(row), row.id to false)
+                if (repost) posts.putIfAbsent(copyGroupKey(row), row.id to false)
             }
         }
         dao.allNotifications().filter { it.state == NotificationState.COPY_VISIBLE }.forEach {
-            posts.putIfAbsent(groupingKey(it), it.id to false)
+            posts.putIfAbsent(copyGroupKey(it), it.id to false)
         }
         posts.values.forEach { (id, alert) -> dao.notificationById(id)?.takeIf { it.state == NotificationState.COPY_VISIBLE }?.let { post(it, alert) } }
         val rows = dao.allNotifications()
@@ -191,7 +233,7 @@ class CopyController(private val context: Context, private val container: AppCon
     }
 
     @Suppress("DEPRECATION")
-    fun open(row: CapturedNotification): Boolean {
+    fun open(row: CapturedNotification, keep: Boolean = false): Boolean {
         val users = context.getSystemService(android.os.UserManager::class.java)
         val personal = users.getSerialNumberForUser(android.os.Process.myUserHandle())
         if (useProfileLauncher(row.userSerial, personal)) {
@@ -204,14 +246,14 @@ class CopyController(private val context: Context, private val container: AppCon
             catch (_: RuntimeException) { return false }
         }
         try {
-            container.contentIntents.remove(row.sourceKey)?.let {
+            (if (keep) container.contentIntents[row.sourceKey] else container.contentIntents.remove(row.sourceKey))?.let {
                 val options = if (android.os.Build.VERSION.SDK_INT >= 34) ActivityOptions.makeBasic()
                     .setPendingIntentBackgroundActivityStartMode(if (android.os.Build.VERSION.SDK_INT >= 36)
                         ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOW_IF_VISIBLE else ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED).toBundle() else null
                 it.send(context, 0, null, null, null, null, options)
                 return true
             }
-        } catch (_: PendingIntent.CanceledException) { } catch (_: SecurityException) { }
+        } catch (_: PendingIntent.CanceledException) { container.contentIntents.remove(row.sourceKey) } catch (_: SecurityException) { container.contentIntents.remove(row.sourceKey) }
         return try {
             if (useProfileLauncher(row.userSerial, personal)) {
                 val user = users.getUserForSerialNumber(row.userSerial) ?: return false
@@ -230,19 +272,17 @@ class CopyController(private val context: Context, private val container: AppCon
         val intent = Intent(context, if (activity) CopyOpenActivity::class.java else CopyActionReceiver::class.java)
             .setAction(action).setData(Uri.parse("holdfast://copy/${row.id}/${row.actionVersion}/$action")).putExtra("id", row.id).putExtra("version", row.actionVersion)
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or if (action == "reply") PendingIntent.FLAG_MUTABLE else PendingIntent.FLAG_IMMUTABLE
-        val requestCode = (row.id * 6 + when (action) {
-            "open" -> 0
-            "swipe" -> 1
-            "snooze1" -> 2
-            "snooze3" -> 3
-            "reply" -> 5
-            else -> 4
-        }).toInt()
+        val requestCode = "${row.id}:$action".hashCode()
         return if (activity) PendingIntent.getActivity(context, requestCode, intent, flags) else PendingIntent.getBroadcast(context, requestCode, intent, flags)
     }
 
+    private suspend fun copyGroupKey(row: CapturedNotification): List<String> {
+        val policy = container.repository.policy(row)
+        return groupingKey(row) + listOf(if (row.digest) "" else row.channelId.orEmpty(), policy.mode, policy.openAndFinish.toString(), policy.buttons)
+    }
+
     private suspend fun group(row: CapturedNotification): List<CapturedNotification> = dao.allNotifications().filter {
-        it.state == row.state && groupingKey(it) == groupingKey(row) &&
+        it.state == row.state && copyGroupKey(it) == copyGroupKey(row) &&
             (row.state == NotificationState.COPY_VISIBLE || it.nextShowAt == row.nextShowAt)
     }.let { if (it.none { member -> member.id == row.id }) it + row else it }
 
@@ -266,17 +306,22 @@ class CopyController(private val context: Context, private val container: AppCon
             }
         }
         val replyRow = members.lastOrNull { container.replyActions.containsKey(it.sourceKey) }?.copy(actionVersion = version)
-        val builder = Notification.Builder(context, if (row.isVip) "vip" else "copies")
-            .setSmallIcon(com.husarp.holdfast.R.drawable.ic_holdfast).setContentTitle(row.title).setContentText(row.text)
-            .setStyle(Notification.BigTextStyle().bigText(row.text)).setSubText("${row.appLabel} · ${relativeAge(row.postedAt, now)} · back ${row.returnCount}x")
+        val silent = container.repository.policy(row).mode == CopyMode.TAKE_OVER
+        if (silent) manager.createNotificationChannel(NotificationChannel("take_over", "Silent take-over copies", NotificationManager.IMPORTANCE_LOW).apply { setSound(null, null); enableVibration(false) })
+        val builder = container.appearance.builder(row, if (silent) "take_over" else if (row.isVip) "vip" else "copies")
             .setVisibility(Notification.VISIBILITY_PRIVATE).setOnlyAlertOnce(!alert)
             .setContentIntent(pending(row, "open", true)).setDeleteIntent(pending(row, "swipe"))
-            .addAction(Notification.Action.Builder(null, "Snooze 1h", pending(row, "snooze1")).build())
-            .addAction(replyRow?.let { target -> container.replyActions[target.sourceKey]?.let { source ->
-                val action = Notification.Action.Builder(null, "Reply", pending(target, "reply"))
-                source.remoteInputs.forEach { action.addRemoteInput(it) }; action.build()
-            } } ?: Notification.Action.Builder(null, "Snooze 3h", pending(row, "snooze3")).build())
-            .addAction(Notification.Action.Builder(null, "Dismiss", pending(row, "dismiss")).build())
+        val sourceActions = container.appearance.originals[row.sourceKey]?.actions.orEmpty().filter { it.remoteInputs.isNullOrEmpty() }
+        fillButtonSlots(container.repository.policy(row).buttons, replyRow != null, sourceActions.size).forEach { button ->
+            when {
+                button.startsWith("original:") -> builder.addAction(sourceActions[button.substringAfter(':').toInt()])
+                button == "reply" -> replyRow?.let { target -> container.replyActions[target.sourceKey]?.let { source ->
+                    val action = Notification.Action.Builder(null, "Reply", pending(target, "reply"))
+                    source.remoteInputs.forEach { action.addRemoteInput(it) }; builder.addAction(action.build())
+                } }
+                else -> builder.addAction(Notification.Action.Builder(null, buttonLabel(button), pending(row, button, button == "openKeep" || button == "copyText")).build())
+            }
+        }
         if (members.size > 1 || row.digest) {
             val inbox = Notification.InboxStyle().setBigContentTitle(if (row.digest) "${row.appLabel} digest" else row.title)
             members.takeLast(7).forEach { inbox.addLine(if (row.digest) "${it.title}: ${it.text}" else it.text) }
@@ -286,7 +331,7 @@ class CopyController(private val context: Context, private val container: AppCon
         members.filter { !it.isVip }.mapNotNull { it.expireAt }.minOrNull()?.let {
             if (members.none { member -> member.isVip }) builder.setTimeoutAfter((it - now).coerceAtLeast(1))
         }
-        try { builder.setLargeIcon(com.husarp.holdfast.ui.profileIcon(context, row.packageName, row.userSerial).toBitmap(128, 128)) }
+        if (container.appearance.load(row.sourceKey)?.largeIcon == null) try { builder.setLargeIcon(com.husarp.holdfast.ui.profileIcon(context, row.packageName, row.userSerial).toBitmap(128, 128)) }
         catch (_: PackageManager.NameNotFoundException) { }
         try { manager.notify("copy", copyId, builder.build()) } catch (_: SecurityException) { }
     }
@@ -303,7 +348,7 @@ class CopyActionReceiver : BroadcastReceiver() {
                 else if (intent.action == "swipe") container.copies.swipe(id, intent.getLongExtra("version", -1))
                 else if (intent.action == "snooze1" || intent.action == "snooze3")
                     container.copies.snooze(id, if (intent.action == "snooze1") 1 else 3, intent.getLongExtra("version", -1))
-                else if (intent.action == "dismiss") container.copies.complete(id, intent.getLongExtra("version", -1))?.let { container.contentIntents.remove(it.sourceKey) }
+                else container.copies.action(id, intent.getLongExtra("version", -1), intent.action.orEmpty())
             } finally { pending.finish() }
         }
     }
@@ -315,10 +360,16 @@ class CopyOpenActivity : Activity() {
         val container = (application as HoldfastApplication).container
         container.scope.launch {
             val opening = container.database.dao().notificationById(intent.getLongExtra("id", -1))
-            val row = container.copies.complete(intent.getLongExtra("id", -1), intent.getLongExtra("version", -1))
-            if (row != null && opening != null) container.database.dao().saveOpen(CopyOpen(packageName = row.packageName, openedAt = System.currentTimeMillis()))
+            val policy = opening?.let { container.repository.policy(it) }
+            val keep = intent.action == "openKeep" || intent.action == "copyText" || policy?.openAndFinish == false
+            val row = if (keep) opening?.takeIf { it.actionVersion == intent.getLongExtra("version", -1) && it.state == NotificationState.COPY_VISIBLE && !isExpired(it, System.currentTimeMillis()) }
+                else container.copies.complete(intent.getLongExtra("id", -1), intent.getLongExtra("version", -1))
+            if (row != null && opening != null && intent.action != "copyText") container.database.dao().saveOpen(CopyOpen(packageName = row.packageName, openedAt = System.currentTimeMillis()))
             withContext(Dispatchers.Main) {
-                if (row != null && !container.copies.open(row)) android.widget.Toast.makeText(this@CopyOpenActivity,
+                if (row != null && intent.action == "copyText") {
+                    getSystemService(android.content.ClipboardManager::class.java).setPrimaryClip(android.content.ClipData.newPlainText(row.title, "${row.title}\n${row.text}"))
+                    android.widget.Toast.makeText(this@CopyOpenActivity, "Text copied", android.widget.Toast.LENGTH_SHORT).show()
+                } else if (row != null && !container.copies.open(row, keep)) android.widget.Toast.makeText(this@CopyOpenActivity,
                     "The app is frozen in its profile or is unavailable.", android.widget.Toast.LENGTH_LONG).show()
                 finish()
             }

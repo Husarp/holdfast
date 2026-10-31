@@ -53,6 +53,7 @@ fun screenIcon(screen: String): ImageVector = when (screen) {
     "Profiles" -> Icons.Outlined.WorkOutline
     "Places" -> Icons.Outlined.Place
     "Backup" -> Icons.Outlined.SaveAlt
+    "When" -> Icons.Outlined.Schedule
     "Timing" -> Icons.Outlined.Schedule
     "Setup" -> Icons.Outlined.CheckCircleOutline
     else -> Icons.Outlined.Settings
@@ -80,19 +81,11 @@ fun SettingsScreen(navigate: (String) -> Unit) {
     androidx.compose.foundation.lazy.LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item { Text("Make Holdfast yours", style = MaterialTheme.typography.titleLarge) }
         item {
-            Card {
+            SettingsSection("Setup and updates") {
                 listOf("Setup", "Timing", "Updates", "What’s new").forEach { SettingsRow(it, navigate) }
             }
         }
-        item { Text("Organize", style = MaterialTheme.typography.titleMedium) }
-        item {
-            Card { listOf("Rules", "Profiles", "Places").forEach { SettingsRow(it, navigate) } }
-        }
-        item { Text("Your data", style = MaterialTheme.typography.titleMedium) }
-        item {
-            Card { listOf("Stats", "Backup").forEach { SettingsRow(it, navigate) } }
-        }
-        item { SpamHints() }
+        item { SettingsSection("Data and app") { listOf("Pause", "Backup", "About").forEach { SettingsRow(it, navigate) } } }
     }
 }
 

@@ -1,3 +1,15 @@
+## 0.2.0
+- Set several quiet ranges and digest times per weekday; copy quiet ranges to other days.
+- See daily activity, period totals and proportional app statistics.
+- Browse profile cards and clearer settings sections, with places saved per profile.
+- Clearer help sheets, aligned controls, day chips, time pickers and duration presets.
+- Find held notifications in Pinned, app controls in Apps, and schedules in When.
+- Get screen help and a short, skippable introduction.
+- Keep original icons, message styles and pictures in copies, including after reboot.
+- Choose take-over modes and open behaviour per app or notification type.
+- Choose and reorder copy buttons, with custom snoozes and a live preview.
+- New app icon: a pinned card.
+
 ## 0.1.0
 - Keep selected apps' notifications as copies, even after a restart.
 - Snooze, dismiss, reply, and bring notifications back from local history.

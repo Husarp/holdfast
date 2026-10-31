@@ -17,8 +17,12 @@ fun TimingSettings() {
     var expiry by rememberSaveable(saved.expireAfterMinutes) { mutableStateOf(saved.expireAfterMinutes?.toString().orEmpty()) }
     var message by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
-    OutlinedTextField(delay, { delay = it; message = "" }, label = { Text("Return delay (minutes, 0 = immediate)") }, singleLine = true)
-    OutlinedTextField(expiry, { expiry = it; message = "" }, label = { Text("Auto-expire (minutes, empty = off)") }, singleLine = true)
+    SettingsSection("Default timing") {
+    OptionRow("Hold everything from pinned apps", "Newly pinned apps take over immediately and silently; existing app modes stay as chosen.") {
+        Switch(saved.holdEverything, { value -> scope.launch { container.repository.saveSettings(saved.copy(holdEverything = value)) } })
+    }
+    MinuteChoices("Return delay", delay, { delay = it; message = "" }, allowZero = true)
+    MinuteChoices("Auto-expire", expiry, { expiry = it; message = "" }, emptyLabel = "Off")
     Text("Auto-expire starts when a copy is first created. Changes apply to new copies and future swipes.")
     Button(onClick = {
         val minutes = delay.toIntOrNull()
@@ -31,4 +35,5 @@ fun TimingSettings() {
         }
     }) { Text("Save timing") }
     if (message.isNotEmpty()) ActionMessage(message)
+    }
 }

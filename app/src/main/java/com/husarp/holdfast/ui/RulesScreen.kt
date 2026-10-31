@@ -32,8 +32,9 @@ fun RulesScreen(initialApp: String = "") {
     LazyColumn(Modifier.fillMaxSize().padding(16.dp)) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            SettingsSection("Add a mute rule") {
             Text("Rules suppress Holdfast copies. Originals and captured history are kept.")
-            Box {
+            if (initialApp.isEmpty()) Box {
                 TextButton(onClick = { chooseApp = true }) { Text(app.ifEmpty { "Choose app" }) }
                 DropdownMenu(chooseApp, onDismissRequest = { chooseApp = false }) {
                     apps.forEach { name -> DropdownMenuItem(text = { Text(name) }, leadingIcon = { AppIcon(name) }, onClick = { app = name; value = ""; chooseApp = false }) }
@@ -48,7 +49,7 @@ fun RulesScreen(initialApp: String = "") {
                     TextButton(onClick = { chooseChannel = true }) { Text(value.ifEmpty { "Choose captured channel" }) }
                     DropdownMenu(chooseChannel, onDismissRequest = { chooseChannel = false }) {
                         channels.filter { it.packageName == app }.forEach { channel ->
-                            DropdownMenuItem(text = { Text(channel.channelId) }, onClick = { value = channel.channelId; chooseChannel = false })
+                            DropdownMenuItem(text = { Text(channel.name) }, onClick = { value = channel.channelId; chooseChannel = false })
                         }
                     }
                 }
@@ -63,12 +64,14 @@ fun RulesScreen(initialApp: String = "") {
                     message = "Rule added"
                 }
             }) { Text("Add rule") }
+            }
+            Text("Saved rules", style = MaterialTheme.typography.titleMedium)
             ActionMessage(message)
             if (rules.isEmpty()) EmptyState("Add a rule to silence matching copies.", screenIcon("Rules"))
             }
         }
-        items(rules, key = { it.id }) { rule ->
-            Column(Modifier.padding(vertical = 8.dp)) {
+        items(rules.filter { initialApp.isEmpty() || it.packageName == initialApp }, key = { it.id }) { rule ->
+            SettingsSection("${rule.kind} rule") {
                 ListItem(headlineContent = { Text(rule.packageName) }, leadingContent = { AppIcon(rule.packageName) })
                 Text("${rule.kind}: ${rule.value}")
                 TextButton(onClick = { scope.launch { container.database.dao().removeRule(rule.id); message = "Rule removed" } }) { Text("Remove") }

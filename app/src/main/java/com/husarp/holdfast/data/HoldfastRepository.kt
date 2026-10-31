@@ -25,23 +25,32 @@ class HoldfastRepository(private val database: HoldfastDatabase, private val loc
     }
     val notificationMutex = Mutex()
     private val dao = database.dao()
+    val types = dao.observeTypes()
+    suspend fun policy(row: CapturedNotification) = resolvePolicy(row, dao.types(), options(row), settings.first())
     val options = dao.observeOptions()
     suspend fun options(row: CapturedNotification) = dao.options(row.packageName, activeProfile()) ?: AppOptions(row.packageName, activeProfile())
     val profiles = dao.observeProfiles()
     val quiet = dao.observeQuiet()
     suspend fun ensureProfiles() { listOf("Work", "Home", "Sleep").forEachIndexed { index, name -> dao.insertProfile(Profile(index + 1L, name)) } }
     suspend fun activeProfile() = settings.first().activeProfileId
-    suspend fun quietUntil(row: CapturedNotification, now: Long) = if (row.isVip) null else if (placeQuiets(dao.observePlaces().first(), row.packageName, locationAllowed())) now + 86_400_000L else quietEnd(dao.quiet(activeProfile(), row.packageName), now)
-    suspend fun quietStarts(row: CapturedNotification, now: Long) = nextQuietStart(dao.quiet(activeProfile(), row.packageName), now)
+    suspend fun quietUntil(row: CapturedNotification, now: Long) = if (row.isVip) null else if (placeQuiets(dao.observePlaces().first().filter { it.profileId == activeProfile() }, row.packageName, locationAllowed())) now + 86_400_000L else quietEnd(dao.quiet(activeProfile(), row.packageName) + dao.quiet(activeProfile(), ""), now)
+    suspend fun quietStarts(row: CapturedNotification, now: Long) = nextQuietStart(dao.quiet(activeProfile(), row.packageName) + dao.quiet(activeProfile(), ""), now)
     val rules = combine(dao.observeRules(), settingsFlow()) { rows, settings -> rows.filter { it.profileId == settings.activeProfileId } }
     private fun settingsFlow() = dao.observeSettings().map { it ?: Settings() }
     val channels = dao.observeChannels()
-    suspend fun isMuted(row: CapturedNotification) = dao.rules().any { it.profileId == activeProfile() && it.matches(row) }
+    suspend fun isMuted(row: CapturedNotification) = policy(row).mode == CopyMode.OFF || options(row).mutedUntil > System.currentTimeMillis() || dao.rules().any { it.profileId == activeProfile() && it.matches(row) }
     val history = dao.observeHistory()
     val pinnedApps = combine(dao.observePinnedApps(), settingsFlow()) { rows, settings -> rows.filter { it.profileId == settings.activeProfileId } }
     val notifications = dao.observeNotifications()
     val settings = dao.observeSettings().map { it ?: Settings() }
-    suspend fun setPinned(packageName: String, enabled: Boolean, userSerial: Long = 0) = dao.savePinnedApp(PinnedApp(packageName, enabled, activeProfile(), userSerial))
+    suspend fun setPinned(packageName: String, enabled: Boolean, userSerial: Long = 0) {
+        val profile = activeProfile()
+        if (enabled && dao.options(packageName, profile)?.mode == null) {
+            val app = dao.options(packageName, profile) ?: AppOptions(packageName, profile)
+            dao.saveOptions(app.copy(mode = if (settings.first().holdEverything) CopyMode.TAKE_OVER else CopyMode.SWIPE))
+        }
+        dao.savePinnedApp(PinnedApp(packageName, enabled, profile, userSerial))
+    }
     suspend fun isPinned(packageName: String, userSerial: Long = 0) = dao.isPinned(packageName, activeProfile(), userSerial) == true
     suspend fun saveSettings(settings: Settings) = dao.saveSettings(settings)
     suspend fun capture(fields: NotificationFields, ownPackage: String, now: Long): CapturedNotification? =
@@ -50,10 +59,12 @@ class HoldfastRepository(private val database: HoldfastDatabase, private val loc
             val mapped = mapNotification(fields, ownPackage, isPinned(fields.packageName, fields.userSerial), now, previous)
                 ?: return@withTransaction null
             mapped.channelId?.let { dao.saveChannel(SeenChannel(mapped.packageName, it)) }
-            val options = options(mapped)
+            val types = dao.observeTypes()
+    suspend fun policy(row: CapturedNotification) = resolvePolicy(row, dao.types(), options(row), settings.first())
+    val options = options(mapped)
             val ready = if (options.digestOnly && mapped.state == NotificationState.ACTIVE_ORIGINAL && !isMuted(mapped))
                 mapped.copy(digest = true, state = NotificationState.COPY_WAITING,
-                    nextShowAt = nextDigestAt(now, parseDigestTimes(options.digestTimes)), copyId = (previous?.id ?: 0).takeIf { it > 0 }?.toInt())
+                    nextShowAt = nextWeeklyDigestAt(now, options.digestTimes), copyId = (previous?.id ?: 0).takeIf { it > 0 }?.toInt())
             else mapped
             dao.saveNotification(ready)
             var saved = dao.notification(fields.sourceKey)!!
@@ -62,7 +73,7 @@ class HoldfastRepository(private val database: HoldfastDatabase, private val loc
             }
             if (previous == null || mapped.actionVersion != previous.actionVersion) {
                 dao.saveEvent(NotificationEvent(notificationId = saved.id, packageName = saved.packageName,
-                    userSerial = saved.userSerial, appLabel = saved.appLabel, title = saved.title, text = saved.text, capturedAt = now))
+                    userSerial = saved.userSerial, appLabel = saved.appLabel, title = saved.title, text = saved.text, capturedAt = now, heldAsCopy = saved.firstCopyAt != null))
             } else dao.updateEvent(saved.id, saved.title, saved.text, saved.appLabel)
             saved
         } }

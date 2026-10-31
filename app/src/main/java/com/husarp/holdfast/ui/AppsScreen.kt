@@ -17,7 +17,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @Composable
-fun AppsScreen(viewModel: AppsViewModel, navigate: (String) -> Unit = {}) {
+fun AppsScreen(viewModel: AppsViewModel) {
     val apps by viewModel.apps.collectAsStateWithLifecycle()
     val pinned by viewModel.pinnedApps.collectAsStateWithLifecycle(emptyList())
     val loading by viewModel.loading.collectAsStateWithLifecycle()
@@ -28,15 +28,23 @@ fun AppsScreen(viewModel: AppsViewModel, navigate: (String) -> Unit = {}) {
     }
     val container = (androidx.compose.ui.platform.LocalContext.current.applicationContext as com.husarp.holdfast.HoldfastApplication).container
     val history by container.repository.history.collectAsState(emptyList())
+    val options by container.repository.options.collectAsState(emptyList())
+    val rules by container.repository.rules.collectAsState(emptyList())
+    val types by container.repository.types.collectAsState(emptyList())
+    val settings by container.repository.settings.collectAsState(com.husarp.holdfast.data.Settings())
     var app by remember { mutableStateOf<LaunchableApp?>(null) }
-    AppsContent(apps, pinned, loading, error, viewModel::setPinned, history, { app = it })
-    app?.let { AppSettingsSheet(it, { app = null }, navigate) }
+    AppsContent(apps, pinned, loading, error, viewModel::setPinned, history, { app = it }, summaries = options.filter { it.profileId == settings.activeProfileId }.associate { option ->
+        option.packageName to ((if (option.mode == com.husarp.holdfast.data.CopyMode.TAKE_OVER) "Takes over" else option.mode ?: "On swipe") +
+            " · ${rules.count { it.packageName == option.packageName } + types.count { it.packageName == option.packageName && it.profileId == settings.activeProfileId }} rules · " +
+            option.buttons.split('|').take(3).joinToString(", ") { com.husarp.holdfast.data.buttonLabel(it) })
+    })
+    app?.let { AppPage(it, { app = null }) }
 }
 
 @Composable
 fun AppsContent(apps: List<LaunchableApp>, pinned: List<com.husarp.holdfast.data.PinnedApp>,
     loading: Boolean = false, error: String? = null, setPinned: (String, Boolean, Long) -> Unit = { _, _, _ -> },
-    history: List<com.husarp.holdfast.data.NotificationEvent> = emptyList(), openApp: (LaunchableApp) -> Unit = {}) {
+    history: List<com.husarp.holdfast.data.NotificationEvent> = emptyList(), openApp: (LaunchableApp) -> Unit = {}, summaries: Map<String, String> = emptyMap()) {
     var search by rememberSaveable { mutableStateOf("") }
     val selected = pinned.filter { it.enabled }.map { it.packageName to it.userSerial }.toSet()
     var pinnedOnly by rememberSaveable { mutableStateOf(false) }
@@ -63,7 +71,7 @@ fun AppsContent(apps: List<LaunchableApp>, pinned: List<com.husarp.holdfast.data
                             Image(icon, null, Modifier.size(40.dp))
                         },
                         headlineContent = { Text(app.label) },
-                        supportingContent = { Text(app.packageName, style = MaterialTheme.typography.bodySmall) },
+                        supportingContent = { Text(if (checked) summaries[app.packageName] ?: "On swipe · Snooze 60m, Dismiss" else app.packageName, style = MaterialTheme.typography.bodySmall) },
                         trailingContent = { Checkbox(checked, { setPinned(app.packageName, it, app.userSerial) }) })
                 }
             }

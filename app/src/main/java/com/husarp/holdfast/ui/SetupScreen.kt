@@ -34,7 +34,7 @@ internal fun setupStatus(context: Context): SetupStatus {
         context.getSystemService(NotificationManager::class.java).areNotificationsEnabled(),
         Build.VERSION.SDK_INT < 31 || context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms(),
         context.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(context.packageName),
-        context.getSystemService(NotificationManager::class.java).getNotificationChannel("copies")?.importance != NotificationManager.IMPORTANCE_NONE)
+        listOf("copies", "take_over", "vip").all { context.getSystemService(NotificationManager::class.java).getNotificationChannel(it)?.importance != NotificationManager.IMPORTANCE_NONE })
 }
 
 @Composable

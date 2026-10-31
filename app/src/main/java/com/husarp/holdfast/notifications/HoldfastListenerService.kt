@@ -41,7 +41,7 @@ class HoldfastListenerService : NotificationListenerService() {
         if (sbn.packageName == packageName && !isDebugSource(sbn)) return
         val eligible = sbn.notification.flags and
             (Notification.FLAG_ONGOING_EVENT or Notification.FLAG_FOREGROUND_SERVICE or Notification.FLAG_GROUP_SUMMARY) == 0
-        events.trySend { container.copies.originalRemoved(sbn.key, eligible && (reason == REASON_CANCEL || reason == REASON_CANCEL_ALL)) }
+        events.trySend { container.copies.removed(sbn.key, if (eligible) reason else -1) }
     }
 
     override fun onListenerConnected() {
@@ -66,6 +66,7 @@ class HoldfastListenerService : NotificationListenerService() {
             }
             container.contentIntents.keys.retainAll(actionable)
             container.replyActions.keys.retainAll(actionable)
+            container.appearance.originals.keys.retainAll(actionable)
             container.copies.recover()
         }
     }
@@ -103,6 +104,18 @@ class HoldfastListenerService : NotificationListenerService() {
         notification.actions?.firstOrNull { it.remoteInputs?.isNotEmpty() == true }?.let { container.replyActions[sbn.key] = it }
             ?: container.replyActions.remove(sbn.key)
         var saved = container.repository.capture(fields, packageName, System.currentTimeMillis()) ?: return
+        container.appearance.save(saved, notification)
+        notification.channelId?.let { id ->
+            val ranking = Ranking()
+            val name = if (currentRanking.getRanking(sbn.key, ranking)) ranking.channel?.name?.toString() ?: id else id
+            container.database.dao().saveChannel(com.husarp.holdfast.data.SeenChannel(saved.packageName, id, name))
+        }
+        if (container.repository.policy(saved).mode == com.husarp.holdfast.data.CopyMode.TAKE_OVER && !container.repository.isMuted(saved)) {
+            notification.contentIntent?.let { container.contentIntents[sbn.key] = it }
+            cancelNotification(sbn.key)
+            container.copies.takeOver(saved.id)
+            return
+        }
         if (saved.state == NotificationState.COPY_VISIBLE || saved.state == NotificationState.COPY_WAITING) {
             container.copies.recover()
             saved = container.database.dao().notificationById(saved.id) ?: return
@@ -110,6 +123,7 @@ class HoldfastListenerService : NotificationListenerService() {
         if (saved.state == NotificationState.DONE || saved.state == NotificationState.EXPIRED) {
             container.contentIntents.remove(sbn.key)
             container.replyActions.remove(sbn.key)
+            container.appearance.originals.remove(sbn.key)
         } else {
             notification.contentIntent?.let { container.contentIntents[sbn.key] = it }
                 ?: container.contentIntents.remove(sbn.key)

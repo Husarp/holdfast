@@ -1,10 +1,13 @@
 package com.husarp.holdfast
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.activity.compose.setContent
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.onLast
 import androidx.compose.ui.unit.dp
@@ -43,12 +46,23 @@ class DesignScreenshotTest(private val screen: String, private val dark: Boolean
             NotificationEvent(2, 2, "com.android.calendar", "Calendar", "Weekend plans", "A little time for yourself.", now),
             NotificationEvent(3, 3, "com.android.messaging", "Messages · Work", "Design team", "Your review is ready.", now, 10)
         )
+        kotlinx.coroutines.runBlocking { history.forEach { context.container.database.dao().saveEvent(it) } }
         val activity = org.robolectric.Robolectric.buildActivity(androidx.activity.ComponentActivity::class.java).setup().visible()
         activity.get().setContent {
             HoldfastTheme(dark = dark, dynamic = false) {
-                Scaffold(topBar = { MediumTopAppBar(title = { Text(screen) }) }, bottomBar = {
+                val title = when (screen) {
+                    "Button-editor", "Help-copy-buttons" -> "Copy buttons"
+                    "App-page" -> "Messages"
+                    "First-run" -> "Welcome"
+                    "Help-when", "Day-chips", "Time-picker" -> "When"
+                    "Stats", "Stats-with-data" -> "Statistics"
+                    "Schedule-editor" -> "Quiet hours"
+                    "Icon", "Icon-themed" -> "Holdfast"
+                    else -> screen
+                }
+                Scaffold(topBar = { TopAppBar(title = { Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { Text(title); HelpButton(title) } }) }, bottomBar = {
                     NavigationBar {
-                        listOf("Pinned", "Apps", "History", "Settings").forEach { title ->
+                        listOf("Pinned", "Apps", "When", "History", "Settings").forEach { title ->
                             NavigationBarItem(selected = screen == title || (title == "Settings" && screen !in listOf("Pinned", "Apps", "History")), onClick = {},
                                 icon = { Icon(screenIcon(title), null) }, label = { Text(title) })
                         }
@@ -64,18 +78,34 @@ class DesignScreenshotTest(private val screen: String, private val dark: Boolean
                             "Updates" -> com.husarp.holdfast.update.UpdatesContent(
                                 com.husarp.holdfast.update.Updates.State(latest = com.husarp.holdfast.update.Updates.Latest("0.2.0", "Holdfast-0.2.0.apk", "", 5_242_880, ""), phase = com.husarp.holdfast.update.Updates.Phase.Downloading(40, 2_097_152, 5_242_880, 800_000)), "0.1.0")
                             "What's new" -> com.husarp.holdfast.update.WhatsNewContent(com.husarp.holdfast.update.WhatsNew.load(context))
-                            "First-run" -> FirstRunGuide({})
-                            "App-settings" -> AppSettingsSheet(LaunchableApp("com.android.messaging", "Messages", context.packageManager.defaultActivityIcon), {}, {})
+                            "First-run" -> IntroScreen()
+                            "Help-pinned" -> ScreenHelp("Pinned") {}
+                            "Help-when" -> ScreenHelp("When") {}
+                            "Help-take-over" -> ScreenHelp("Take-over") {}
+                            "Help-apps" -> ScreenHelp("Apps") {}
+                            "Help-app-page" -> ScreenHelp("App page") {}
+                            "Help-history" -> ScreenHelp("History") {}
+                            "Help-settings" -> ScreenHelp("Settings") {}
+                            "Help-copy-buttons" -> ScreenHelp("Copy buttons", "Choose up to three visible buttons.\nReorder slots with the arrows.\nUnavailable actions use the next fallback.") {}
+                            "Time-picker" -> ClockDialog("18:30", {}, {})
+                            "Day-chips" -> Column(Modifier.padding(16.dp)) { Text("Quiet hours"); DayChips("1,2,3,4,5") {} }
+                            "When" -> WhenScreen {}
+                            "About" -> Column(Modifier.padding(16.dp)) { Text("Holdfast 0.2.0"); Text("All data stays on this device."); TextButton(onClick = {}) { Text("Show intro again") } }
+                            "Button-editor" -> Column(Modifier.padding(16.dp)) { ButtonEditor(listOf("snooze:60", "dismiss", "reply")) {} }
+                            "App-page" -> AppPage(LaunchableApp("com.android.messaging", "Messages", context.packageManager.defaultActivityIcon), {})
                             "Pause" -> Column(Modifier.padding(16.dp)) { Text("Paused until tomorrow, 08:00"); PauseControls(initiallyExpanded = true) }
                             "Icon" -> IconPreview(false)
                             "Icon-themed" -> IconPreview(true)
                             "Apps" -> AppsContent(history.map {
                                 LaunchableApp(it.packageName, it.appLabel, context.packageManager.defaultActivityIcon, it.userSerial)
                             }, listOf(PinnedApp("com.android.messaging")))
-                            "History" -> HistoryContent(history)
-                            "Stats" -> StatsContent(history)
+                            "History" -> HistoryHub()
+                            "Stats", "Stats-with-data" -> StatsContent(history + (4L..18L).map { id -> history.first().copy(id = id, capturedAt = now - (id % 7) * 86_400_000, heldAsCopy = id % 2L == 0L) }, listOf(CopyOpen(packageName = "com.android.messaging", openedAt = now)))
                             "Settings" -> SettingsScreen {}
                             "Rules" -> RulesScreen()
+                            "Schedule-editor" -> Column(Modifier.padding(16.dp).verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                WeeklyScheduleEditor(listOf(QuietSchedule(packageName = "", days = "1", startMinute = 900, endMinute = 960), QuietSchedule(packageName = "", days = "1", startMinute = 1200, endMinute = 1260), QuietSchedule(packageName = "", days = "2", startMinute = 1320, endMinute = 480))) { _, _ -> }
+                            }
                             "Profiles" -> ProfilesScreen()
                             "Places" -> PlacesScreen()
                             "Backup" -> BackupScreen()
@@ -87,6 +117,8 @@ class DesignScreenshotTest(private val screen: String, private val dark: Boolean
             }
         }
         compose.waitForIdle()
+        if (screen.startsWith("Help-")) compose.onNodeWithText("Got it").assertExists()
+
         if (screen == "Timing") compose.waitUntil(10_000) {
             compose.onAllNodes(androidx.compose.ui.test.hasText("Save timing")).fetchSemanticsNodes().isNotEmpty()
         }
@@ -98,7 +130,7 @@ class DesignScreenshotTest(private val screen: String, private val dark: Boolean
     companion object {
         @JvmStatic
         @ParameterizedRobolectricTestRunner.Parameters(name = "{0}-{1}")
-        fun cases(): List<Array<Any>> = listOf("Pinned", "Apps", "History", "Settings", "Stats", "Rules", "Profiles", "Places", "Backup", "Setup", "Timing", "Updates", "What's new", "First-run", "App-settings", "Pause", "Icon", "Icon-themed")
+        fun cases(): List<Array<Any>> = listOf("Schedule-editor", "Stats-with-data", "Pinned", "Apps", "History", "Settings", "Stats", "Rules", "Profiles", "Places", "Backup", "Setup", "Timing", "Updates", "What's new", "First-run", "App-page", "Help-pinned", "When", "About", "Button-editor", "Pause", "Icon", "Icon-themed", "Help-when", "Help-copy-buttons", "Help-take-over", "Help-apps", "Help-app-page", "Help-history", "Help-settings", "Time-picker", "Day-chips")
             .flatMap { screen -> listOf(false, true).map { dark -> arrayOf(screen, dark) } }
     }
 }

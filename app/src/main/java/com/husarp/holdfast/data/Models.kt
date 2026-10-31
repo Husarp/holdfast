@@ -45,6 +45,7 @@ data class Settings(
     val pausedUntil: Long? = null,
     val returnDelayMinutes: Int = 0,
     val expireAfterMinutes: Int? = null,
+    val holdEverything: Boolean = false,
 ) { init { require(id == 1); require(returnDelayMinutes >= 0); require(expireAfterMinutes == null || expireAfterMinutes > 0) } }
 
 @Entity
@@ -57,6 +58,7 @@ data class NotificationEvent(
     val text: String,
     val capturedAt: Long,
     val userSerial: Long = 0,
+    val heldAsCopy: Boolean = false,
 )
 
 data class AppCount(val packageName: String, val appLabel: String, val count: Int, val userSerial: Long = 0)
@@ -78,7 +80,7 @@ data class MuteRule(
 }
 
 @Entity(primaryKeys = ["packageName", "channelId"])
-data class SeenChannel(val packageName: String, val channelId: String)
+data class SeenChannel(val packageName: String, val channelId: String, val name: String = channelId)
 
 @Entity
 data class Profile(@PrimaryKey(autoGenerate = true) val id: Long = 0, val name: String)
@@ -120,6 +122,10 @@ fun quietEnd(schedules: List<QuietSchedule>, now: Long, zone: java.time.ZoneId =
 data class AppOptions(
     val packageName: String,
     val profileId: Long = 1,
+    val mode: String? = null,
+    val openAndFinish: Boolean? = null,
+    val buttons: String = "snooze:60|dismiss|reply",
+    val mutedUntil: Long = 0,
     val vipSenders: String = "",
     val returnDelayMinutes: Int? = null,
     val overrideExpiry: Boolean = false,
@@ -128,7 +134,7 @@ data class AppOptions(
     val digestOnly: Boolean = false,
     val digestTimes: String = "09:00,18:00",
 ) {
-    init { require(returnDelayMinutes == null || returnDelayMinutes >= 0); require(expireAfterMinutes == null || expireAfterMinutes > 0); require(repeatMinutes == null || repeatMinutes > 0); require(parseDigestTimes(digestTimes).isNotEmpty()) }
+    init { require(mode == null || mode in CopyMode.choices); require(buttons.isEmpty() || buttons.split('|').all(::validButton)); require(returnDelayMinutes == null || returnDelayMinutes >= 0); require(expireAfterMinutes == null || expireAfterMinutes > 0); require(repeatMinutes == null || repeatMinutes > 0); require((!digestOnly && digestTimes.isBlank()) || digestEntries(digestTimes).isNotEmpty()) }
     fun isVip(row: CapturedNotification) = vipSenders.lines().filter { it.isNotBlank() }.any {
         it.trim().equals(row.sender ?: row.title, ignoreCase = true)
     }
@@ -167,3 +173,22 @@ data class CopyOpen(@PrimaryKey(autoGenerate = true) val id: Long = 0, val packa
 data class SpamDecision(@PrimaryKey val packageName: String, val appLabel: String, val count: Int, val answered: Boolean = false)
 
 fun shouldSuggestSpam(count: Int, opened: Boolean, alreadySuggested: Boolean) = count >= 20 && !opened && !alreadySuggested
+
+// Legacy comma-separated times apply every day; weekly entries use day@time.
+fun digestEntries(value: String): List<Pair<Int, java.time.LocalTime>> = try {
+    value.split(",").flatMap { entry ->
+        val time = java.time.LocalTime.parse(entry.substringAfter('@').trim())
+        val days = if ('@' in entry) listOf(entry.substringBefore('@').toInt().also { require(it in 1..7) }) else (1..7).toList()
+        days.map { it to time }
+    }.distinct()
+} catch (_: IllegalArgumentException) { emptyList() } catch (_: java.time.DateTimeException) { emptyList() }
+
+fun nextWeeklyDigestAt(now: Long, value: String, zone: java.time.ZoneId = java.time.ZoneId.systemDefault()): Long {
+    val entries = digestEntries(value)
+    require(entries.isNotEmpty())
+    val date = java.time.Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+    return (0L..7L).flatMap { offset ->
+        val day = date.plusDays(offset)
+        entries.filter { it.first == day.dayOfWeek.value }.map { day.atTime(it.second).atZone(zone).toInstant().toEpochMilli() }
+    }.filter { it > now }.min()
+}

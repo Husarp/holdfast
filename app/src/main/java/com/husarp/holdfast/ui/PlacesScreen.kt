@@ -26,6 +26,7 @@ fun PlacesScreen() {
     val c = (context.applicationContext as HoldfastApplication).container
     val dao = c.database.dao()
     val places by dao.observePlaces().collectAsState(emptyList())
+    val settings by c.repository.settings.collectAsState(com.husarp.holdfast.data.Settings())
     val apps by c.repository.pinnedApps.collectAsState(emptyList())
     val scope = rememberCoroutineScope()
     var selected by remember { mutableStateOf(setOf<String>()) }
@@ -50,6 +51,7 @@ fun PlacesScreen() {
     LazyColumn(Modifier.fillMaxSize().padding(16.dp)) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            SettingsSection("Location access") {
             Text(if (permitted) "Location quiet is on" else "Location quiet is off")
             Text("Precise location saves your current place. Background location lets Android report entry and exit while Holdfast is closed. Choose Allow all the time in app permissions. Location stays on this device. Alerts may be delayed.")
             Button(onClick = { permission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) }) { Text("Allow precise location") }
@@ -57,13 +59,14 @@ fun PlacesScreen() {
                 if (Build.VERSION.SDK_INT == 29) permission.launch(arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION))
                 else context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))
             }) { Text("Background location settings") }
+            }
+            SettingsSection("Add a place to this profile") {
             OutlinedTextField(name, { name = it }, label = { Text("Place name") })
             OutlinedTextField(radius, { radius = it }, label = { Text("Radius in meters") })
-            apps.filter { it.enabled }.forEach { app ->
-                Row {
+            apps.filter { it.enabled && it.profileId == settings.activeProfileId }.forEach { app ->
+                ListItem(headlineContent = { Text(app.packageName) }, leadingContent = { AppIcon(app.packageName, app.userSerial) }, trailingContent = {
                     Checkbox(app.packageName in selected, { checked -> selected = if (checked) selected + app.packageName else selected - app.packageName })
-                    ListItem(headlineContent = { Text(app.packageName) }, leadingContent = { AppIcon(app.packageName, app.userSerial) })
-                }
+                })
             }
             Button(enabled = permitted && name.isNotBlank() && selected.isNotEmpty() && (radius.toFloatOrNull()?.let { it.isFinite() && it > 0 } == true), onClick = {
                 val manager = context.getSystemService(LocationManager::class.java)
@@ -83,7 +86,7 @@ fun PlacesScreen() {
                             if (location == null) message = "No current location. Enable location and try outdoors."
                             else scope.launch {
                                 dao.savePlace(QuietPlace(name = savedName, latitude = location.latitude, longitude = location.longitude,
-                                    radius = savedRadius, packages = savedPackages, inside = true))
+                                    radius = savedRadius, packages = savedPackages, inside = true, profileId = settings.activeProfileId))
                                 val registered = Places(context).restore()
                                 c.copies.recover()
                                 message = if (registered) "Place saved" else "Place saved, but proximity alerts are unavailable. Check location permissions and device location."
@@ -92,13 +95,17 @@ fun PlacesScreen() {
                     }
                 } catch (_: SecurityException) { permitted = false; message = "Location permission denied." }
             }) { Text("Save current location") }
+            }
+            Text("Saved places", style = MaterialTheme.typography.titleMedium)
             ActionMessage(message)
             if (places.isEmpty()) EmptyState("Save a place to pause notifications while you are there.", screenIcon("Places"))
-            places.forEach { place ->
+            places.filter { it.profileId == settings.activeProfileId }.forEach { place ->
+                SettingsSection(place.name) {
                 Text("${place.name}: ${place.radius.toInt()} m — ${if (permitted && place.inside) "inside" else "outside / off"}")
                 TextButton(onClick = { scope.launch {
                     Places(context).remove(place.id); dao.removePlace(place.id); c.copies.recover()
                 } }) { Text("Remove") }
+                }
             }
             }
         }

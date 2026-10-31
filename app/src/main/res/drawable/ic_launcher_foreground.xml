@@ -1,1 +1,6 @@
-<inset xmlns:android="http://schemas.android.com/apk/res/android" android:drawable="@drawable/ic_holdfast" android:insetLeft="25%" android:insetRight="25%" android:insetTop="25%" android:insetBottom="25%" />
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#B8F2DF" android:pathData="M37,38 H71 A7,7 0,0 1,78 45 V64 A7,7 0,0 1,71 71 H37 A7,7 0,0 1,30 64 V45 A7,7 0,0 1,37 38 Z" />
+    <path android:strokeColor="#00695C" android:strokeWidth="4" android:strokeLineCap="round" android:pathData="M38,49 H51 M38,58 H58" />
+    <path android:fillColor="#00695C" android:strokeColor="#B8F2DF" android:strokeWidth="3" android:strokeLineJoin="round" android:pathData="M60,30 H72 L70,42 L75,48 H57 L62,42 Z" />
+    <path android:strokeColor="#00695C" android:strokeWidth="4" android:strokeLineCap="round" android:pathData="M66,49 V61" />
+</vector>

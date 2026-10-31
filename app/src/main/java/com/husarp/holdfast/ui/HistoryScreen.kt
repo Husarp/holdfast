@@ -7,6 +7,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.husarp.holdfast.HoldfastApplication
@@ -57,15 +59,15 @@ fun HistoryContent(history: List<NotificationEvent>, bringBack: (NotificationEve
 fun StatsScreen() {
     val repository = (LocalContext.current.applicationContext as HoldfastApplication).container.repository
     val history by repository.history.collectAsState(initial = emptyList())
-    StatsContent(history)
+    val opens by (LocalContext.current.applicationContext as HoldfastApplication).container.database.dao().observeOpens().collectAsState(emptyList())
+    StatsContent(history, opens)
 }
 
 @Composable
-fun StatsContent(history: List<NotificationEvent>) {
+fun StatsContent(history: List<NotificationEvent>, opens: List<com.husarp.holdfast.data.CopyOpen> = emptyList()) {
     var days by remember { mutableIntStateOf(7) }
-    val cutoff = System.currentTimeMillis() - days * 86_400_000L
-    val counts = history.filter { it.capturedAt >= cutoff }.groupBy { it.packageName to it.userSerial }
-        .values.sortedByDescending { it.size }
+    val stats = com.husarp.holdfast.data.activityStats(history, opens, days)
+    val counts = stats.events.groupBy { it.packageName to it.userSerial }.values.sortedByDescending { it.size }
     val maximum = counts.maxOfOrNull { it.size } ?: 1
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
@@ -73,17 +75,60 @@ fun StatsContent(history: List<NotificationEvent>) {
                 FilterChip(selected = days == value, onClick = { days = value }, label = { Text("$value days") })
             } }
         }
+        item {
+            SettingsSection("Period summary") {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    listOf("Captured" to stats.events.size, "Held as copies" to stats.held, "Opened" to stats.opened).forEach { (label, count) ->
+                        Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) { Text("$count", style = MaterialTheme.typography.headlineSmall); Text(label, style = MaterialTheme.typography.labelSmall) }
+                    }
+                }
+                Text("Opened counts taps on copies during this period.", style = MaterialTheme.typography.bodySmall)
+            }
+        }
         if (counts.isEmpty()) item { EmptyState("Capture notifications to see your activity.", screenIcon("Stats")) }
+        else {
+            item { SettingsSection("Captured per day") { DailyChart(stats.daily) } }
+            item { Text("By app", style = MaterialTheme.typography.titleMedium) }
+        }
         items(counts) { rows ->
-            Card {
-                ListItem(headlineContent = { Text(rows.first().appLabel) },
-                    leadingContent = { AppIcon(rows.first().packageName, rows.first().userSerial) },
-                    trailingContent = { Text(rows.size.toString(), style = MaterialTheme.typography.titleLarge) })
-                Box(Modifier.padding(16.dp).fillMaxWidth()) {
-                    Box(Modifier.fillMaxWidth(rows.size.toFloat() / maximum).height(16.dp)
-                        .background(MaterialTheme.colorScheme.primary, MaterialTheme.shapes.large))
+            Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                AppIcon(rows.first().packageName, rows.first().userSerial)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(rows.first().appLabel, style = MaterialTheme.typography.bodyLarge)
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Box(Modifier.weight(1f).height(6.dp).background(MaterialTheme.colorScheme.surfaceContainerHighest, MaterialTheme.shapes.large)) {
+                            Box(Modifier.fillMaxWidth(appBarFraction(rows.size, maximum)).height(6.dp)
+                                .background(MaterialTheme.colorScheme.primary, MaterialTheme.shapes.large))
+                        }
+                        Text("${rows.size}", style = MaterialTheme.typography.labelLarge)
+                    }
                 }
             }
         }
     }
 }
+
+@Composable
+private fun DailyChart(daily: List<Pair<java.time.LocalDate, Int>>) {
+    val maximum = daily.maxOf { it.second }.coerceAtLeast(1)
+    Text("Maximum: ${daily.maxOf { it.second }}", style = MaterialTheme.typography.labelMedium)
+    Row(Modifier.fillMaxWidth().height(120.dp), horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = androidx.compose.ui.Alignment.Bottom) {
+        daily.forEach { (date, count) ->
+            Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = androidx.compose.ui.Alignment.BottomCenter) {
+                Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                    modifier = Modifier.semantics { contentDescription = "$date: $count captured" }) {
+                    if (count == maximum) Text("$count", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                    Box(Modifier.fillMaxWidth().height((count * 96f / maximum).dp).background(MaterialTheme.colorScheme.primary))
+                }
+            }
+        }
+    }
+    HorizontalDivider()
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        listOf(daily.first().first, daily[daily.size / 2].first, daily.last().first).forEach { Text(it.format(java.time.format.DateTimeFormatter.ofPattern("MMM d")), style = MaterialTheme.typography.labelSmall) }
+    }
+}
+
+internal fun appBarFraction(count: Int, maximum: Int): Float =
+    if (maximum <= 0) 0f else (count.toFloat() / maximum).coerceIn(0f, 1f)

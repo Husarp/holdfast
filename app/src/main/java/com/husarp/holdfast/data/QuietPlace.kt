@@ -12,6 +12,7 @@ data class QuietPlace(
     val radius: Float,
     val packages: String,
     val inside: Boolean = false,
+    val profileId: Long = 1,
 ) {
     init {
         require(name.isNotBlank())

@@ -6,7 +6,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
 }
-val appVersion = "0.1.0"
+val appVersion = "0.2.0"
 val signingProperties = Properties()
 val signingFile = file("${System.getProperty("user.home")}/.keystores/holdfast-signing.properties")
 if (signingFile.exists()) signingFile.inputStream().use { signingProperties.load(it) }

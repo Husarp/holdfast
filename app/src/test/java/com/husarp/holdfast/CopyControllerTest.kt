@@ -332,10 +332,10 @@ class CopyControllerTest {
         val manager = ApplicationProvider.getApplicationContext<HoldfastApplication>().getSystemService(android.app.NotificationManager::class.java)
         val copies = manager.activeNotifications.map { it.notification }
         assertEquals(2, copies.size)
-        copies.forEach { assertEquals(listOf("Snooze 1h", "Snooze 3h", "Dismiss"), it.actions.map { action -> action.title.toString() }) }
+        copies.forEach { assertEquals(listOf("Snooze 60m", "Dismiss"), it.actions.map { action -> action.title.toString() }) }
         val intents = copies.flatMap { listOf(it.contentIntent, it.deleteIntent) + it.actions.map { action -> action.actionIntent } }
-        assertEquals(10, intents.toSet().size)
-        assertEquals(10, intents.map { org.robolectric.Shadows.shadowOf(it).requestCode }.toSet().size)
+        assertEquals(8, intents.toSet().size)
+        assertEquals(8, intents.map { org.robolectric.Shadows.shadowOf(it).requestCode }.toSet().size)
     }
     @Test fun originalSwipeCreatesStableCopyAndDuplicateIsIgnored() = runBlocking {
         val row = source()
@@ -402,11 +402,9 @@ class CopyControllerTest {
         container.copies.recover()
         val copy = manager.activeNotifications.single().notification
         assertEquals(android.app.Notification.VISIBILITY_PRIVATE, copy.visibility)
-        val subtext = copy.extras.getCharSequence(android.app.Notification.EXTRA_SUB_TEXT).toString()
-        assertTrue(subtext.startsWith("Example · "))
-        assertTrue(subtext.endsWith(" · back 0x"))
+        assertNull(copy.extras.getCharSequence(android.app.Notification.EXTRA_SUB_TEXT))
         assertNotNull(copy.contentIntent); assertNotNull(copy.deleteIntent)
-        assertEquals(3, copy.actions.size)
+        assertEquals(2, copy.actions.size)
         container.copies.complete(row.id)
         assertTrue(manager.activeNotifications.isEmpty())
     }

@@ -21,27 +21,20 @@ fun PinnedScreen(openSetup: () -> Unit = {}, navigate: (String) -> Unit = {}) {
     val scope = rememberCoroutineScope()
     var ready by remember { mutableStateOf(false) }
     LifecycleResumeEffect(Unit) {
-        ready = setupStatus(context).let { it.listener && it.posting && it.exact && it.battery && it.copies }
+        ready = setupStatus(context).let { it.listener && it.posting && it.copies }
         onPauseOrDispose { }
     }
+    val connected by container.listenerConnected.collectAsState()
     val settings by container.repository.settings.collectAsState(Settings())
-    var confirm by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     Column {
-        if (confirm) AlertDialog(onDismissRequest = { confirm = false }, title = { Text("Dismiss all pinned notifications?") },
-            confirmButton = { TextButton(onClick = { confirm = false; scope.launch { rows.forEach { container.copies.complete(it.id) } } }) { Text("Dismiss all") } },
-            dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } })
-        com.husarp.holdfast.update.UpdateCards(navigate)
-        FirstRunGuide(openSetup) { navigate("Apps") }
-        HealthBanner(openSetup)
         val paused = settings.pausedUntil?.takeIf { it > System.currentTimeMillis() }
-        if (paused != null) Text(if (paused == Long.MAX_VALUE) "Paused until resumed" else "Paused until ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(paused))}")
-        TextButton(onClick = { confirm = true }, enabled = rows.any { it.state == NotificationState.COPY_VISIBLE || it.state == NotificationState.COPY_WAITING }) { Text("Dismiss all") }
+        if (paused != null) TextButton(onClick = { navigate("Pause") }) { Text("Holdfast is paused · Resume") }
         Box(Modifier.weight(1f)) {
         PinnedContent(rows.filter { it.state == NotificationState.COPY_VISIBLE || it.state == NotificationState.COPY_WAITING },
-            ready, openSetup, dismiss = { row ->
+            (ready && connected) || paused != null, openSetup, dismiss = { row ->
             scope.launch {
-                val snapshots = rows.filter { it.state == row.state && groupingKey(it) == groupingKey(row) && (row.state == NotificationState.COPY_VISIBLE || it.nextShowAt == row.nextShowAt) }
+                val snapshots = rows.filter { it.state == row.state && it.copyId == row.copyId && (row.state == NotificationState.COPY_VISIBLE || it.nextShowAt == row.nextShowAt) }
                 if (container.copies.complete(row.id) != null) {
                     if (snackbar.showSnackbar("Notification dismissed", "Undo") == SnackbarResult.ActionPerformed) container.copies.undo(snapshots)
                     else snapshots.forEach { container.contentIntents.remove(it.sourceKey) }
@@ -59,12 +52,7 @@ fun PinnedScreen(openSetup: () -> Unit = {}, navigate: (String) -> Unit = {}) {
 fun PinnedContent(rows: List<CapturedNotification>, setupReady: Boolean, openSetup: () -> Unit = {}, dismiss: (CapturedNotification) -> Unit = {}, dismissApp: (CapturedNotification) -> Unit = {}) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         if (!setupReady) item {
-            Card {
-                ListItem(colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent), headlineContent = { Text("Finish setting up Holdfast") },
-                    supportingContent = { Text("Enable notification access and reminders.") },
-                    leadingContent = { Icon(screenIcon("Setup"), null) })
-                TextButton(onClick = openSetup, modifier = Modifier.padding(horizontal = 16.dp)) { Text("Open checklist") }
-            }
+            TextButton(onClick = openSetup) { Text("Holdfast needs access · Open checklist") }
         }
         if (rows.isEmpty()) item { EmptyState("Dismiss a notification from a selected app to keep it here.") }
         items(rows, key = { it.id }) { row ->

@@ -56,11 +56,15 @@ fun BackupScreen() {
         }
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        SettingsSection("Export a local backup") {
         Icon(screenIcon("Backup"), null)
-        Row { Checkbox(history, { history = it }); Text("Include history") }
+        OptionRow("Include history") { Checkbox(history, { history = it }) }
         Text("Every export includes app selections, rules and VIP names. Optional history includes private notification titles and text. Anyone with the file can read them.")
         Button(onClick = { scope.launch { c.repository.ensureProfiles(); export.launch("holdfast.json") } }) { Text("Export JSON") }
+        }
+        SettingsSection("Restore a backup") {
         Button(onClick = { import.launch(arrayOf("application/json", "text/plain")) }) { Text("Import JSON") }
+        }
         ActionMessage(message)
     }
     pending?.let { backup ->
