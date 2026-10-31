@@ -33,5 +33,5 @@ class AppContainer(application: Application) {
     val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
     val scheduler = com.husarp.holdfast.scheduling.CopyScheduler(application)
     val copies = com.husarp.holdfast.notifications.CopyController(application, this)
-    val repository = HoldfastRepository(database) { com.husarp.holdfast.location.locationPermitted(application) }
+    val repository = HoldfastRepository(database, appearance) { com.husarp.holdfast.location.locationPermitted(application) }
 }

@@ -20,6 +20,49 @@ class OriginalAppearanceTest {
     private val app = ApplicationProvider.getApplicationContext<HoldfastApplication>()
     private val row = CapturedNotification(packageName = app.packageName, appLabel = "Holdfast", sourceKey = "appearance", channelId = "source", title = "Fallback", text = "Fallback text", postedAt = 1, updatedAt = 1)
     private fun builder() = Notification.Builder(app, "source").setSmallIcon(R.drawable.ic_holdfast).setContentTitle("Title").setContentText("Text")
+    @Test fun deleteRemovesSavedImagesAndMemory() {
+        val store = OriginalAppearance(app)
+        val image = Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888)
+        val avatar = Icon.createWithBitmap(image)
+        val style = Notification.MessagingStyle(Person.Builder().setName("Me").setIcon(avatar).build())
+            .addMessage("Hello", 1, Person.Builder().setName("Alex").setIcon(avatar).build())
+        store.save(row, builder().setLargeIcon(image).setStyle(style).build())
+        assertTrue(java.io.File(app.filesDir, "appearance").listFiles()!!.isNotEmpty())
+        store.delete(row.sourceKey)
+        assertFalse(store.originals.containsKey(row.sourceKey))
+        assertTrue(java.io.File(app.filesDir, "appearance").listFiles()!!.isEmpty())
+        store.save(row, builder().setStyle(Notification.BigPictureStyle().bigPicture(image)).build())
+        OriginalAppearance(app).delete(row.sourceKey)
+        assertTrue(java.io.File(app.filesDir, "appearance").listFiles()!!.isEmpty())
+    }
+
+    @Test fun sweepRemovesUnknownFilesAndCompletedAppearancesButKeepsLiveFiles() {
+        val store = OriginalAppearance(app)
+        store.save(row, builder().build())
+        store.save(row.copy(sourceKey = "finished"), builder().build())
+        val unknown = java.io.File(app.filesDir, "appearance/unknown.png").apply { writeText("orphan") }
+        val unknownJson = java.io.File(app.filesDir, "appearance/unknown.json").apply { writeText("broken") }
+        store.sweep(setOf(row.sourceKey))
+        assertFalse(unknown.exists())
+        assertFalse(unknownJson.exists())
+        assertNull(store.load("finished"))
+        assertNotNull(store.load(row.sourceKey))
+        assertNotNull(OriginalAppearance(app).builder(row, "copies").build().smallIcon)
+        store.delete(row.sourceKey)
+        assertTrue(java.io.File(app.filesDir, "appearance").listFiles()!!.isEmpty())
+    }
+
+    @Test fun deletingOneNotificationPreservesSharedSmallIcon() {
+        val store = OriginalAppearance(app)
+        store.save(row, builder().build())
+        store.save(row.copy(sourceKey = "other"), builder().build())
+        val icon = store.load("other")!!.smallIcon!!
+        store.delete(row.sourceKey)
+        assertTrue(java.io.File(app.filesDir, "appearance/$icon").exists())
+        store.delete("other")
+        assertTrue(java.io.File(app.filesDir, "appearance").listFiles()!!.isEmpty())
+    }
+
     @Test fun bigTextIconsAndMetadataSurviveNewStore() {
         val bitmap = Bitmap.createBitmap(10, 10, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) }
         val original = builder().setLargeIcon(bitmap).setSubText("Original subtext").setColor(Color.BLUE).setCategory(Notification.CATEGORY_REMINDER)

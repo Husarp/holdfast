@@ -1,3 +1,6 @@
+## 0.2.1
+- Delete saved notification pictures and icons once a copy is finished, and clean up leftovers daily.
+
 ## 0.2.0
 - Set several quiet ranges and digest times per weekday; copy quiet ranges to other days.
 - See daily activity, period totals and proportional app statistics.

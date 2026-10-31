@@ -34,7 +34,28 @@ class OriginalAppearance(private val context: Context) {
         return file.name
     }
     private fun readBitmap(file: String?) = file?.let { BitmapFactory.decodeFile(File(directory, it).path) }
+    private fun Appearance.files() = listOfNotNull(picture, largeIcon, smallIcon, userAvatar) + messages.mapNotNull { it.avatar }
+
+    @Synchronized
+    fun delete(key: String) {
+        val files = load(key)?.files().orEmpty()
+        originals.remove(key)
+        File(directory, "${name(key)}.json").delete()
+        val shared = directory.listFiles().orEmpty().filter { it.extension == "json" }.flatMap { file ->
+            try { gson.fromJson(file.readText(), Appearance::class.java).files() } catch (_: Exception) { emptyList() }
+        }.toSet()
+        files.filter { it !in shared }.forEach { File(directory, File(it).name).delete() }
+    }
+
+    @Synchronized
+    fun sweep(liveKeys: Set<String>) {
+        originals.keys.retainAll(liveKeys)
+        val keep = liveKeys.flatMap { key -> listOf("${name(key)}.json") + load(key)?.files().orEmpty() }.toSet()
+        directory.listFiles().orEmpty().filter { it.name !in keep }.forEach { it.delete() }
+    }
+
     @Suppress("DEPRECATION")
+    @Synchronized
     fun save(row: CapturedNotification, notification: Notification) {
         originals[row.sourceKey] = notification
         try {

@@ -31,6 +31,25 @@ class HistoryTest {
         assertEquals(1, db.dao().counts(101).single().count)
         assertTrue(db.dao().counts(401).isEmpty())
     }
+    @Test fun retentionSweepsOrphansAndKeepsLiveAppearance() = runBlocking {
+        val app = ApplicationProvider.getApplicationContext<HoldfastApplication>()
+        val appearance = com.husarp.holdfast.notifications.OriginalAppearance(app)
+        val repository = HoldfastRepository(db, appearance)
+        repository.setPinned("app", true)
+        val live = repository.capture(fields, "own", 1)!!
+        val done = repository.capture(fields.copy(sourceKey = "done"), "own", 1)!!
+        val notification = android.app.Notification.Builder(app, "source").setSmallIcon(R.drawable.ic_holdfast).build()
+        appearance.save(live.copy(packageName = app.packageName), notification)
+        appearance.save(done.copy(packageName = app.packageName), notification)
+        db.dao().saveNotification(done.copy(state = NotificationState.DONE))
+        java.io.File(app.filesDir, "appearance/unknown.png").writeText("orphan")
+        repository.cleanup(31L * 86_400_000)
+        assertNotNull(appearance.load(live.sourceKey))
+        assertNull(appearance.load(done.sourceKey))
+        assertFalse(java.io.File(app.filesDir, "appearance/unknown.png").exists())
+        assertNull(db.dao().notification(done.sourceKey))
+    }
+
     @Test fun cleanupPreservesActiveRowsAndExactCutoff() = runBlocking {
         repo.setPinned("app", true)
         val cutoff = 1000L

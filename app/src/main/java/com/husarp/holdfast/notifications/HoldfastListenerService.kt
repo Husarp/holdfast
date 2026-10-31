@@ -123,7 +123,7 @@ class HoldfastListenerService : NotificationListenerService() {
         if (saved.state == NotificationState.DONE || saved.state == NotificationState.EXPIRED) {
             container.contentIntents.remove(sbn.key)
             container.replyActions.remove(sbn.key)
-            container.appearance.originals.remove(sbn.key)
+            container.appearance.delete(sbn.key)
         } else {
             notification.contentIntent?.let { container.contentIntents[sbn.key] = it }
                 ?: container.contentIntents.remove(sbn.key)

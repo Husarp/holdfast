@@ -37,7 +37,7 @@ class CopyController(private val context: Context, private val container: AppCon
             dao.saveNotification(row.copy(state = NotificationState.DONE, nextShowAt = null, nextRepeatAt = null, updatedAt = System.currentTimeMillis()))
             container.contentIntents.remove(key)
             container.replyActions.remove(key)
-            container.appearance.originals.remove(key)
+            container.appearance.delete(key)
             refresh()
             return@withLock
         }
@@ -46,7 +46,7 @@ class CopyController(private val context: Context, private val container: AppCon
             dao.saveNotification(row.copy(state = NotificationState.DONE, updatedAt = System.currentTimeMillis()))
             container.contentIntents.remove(key)
             container.replyActions.remove(key)
-            container.appearance.originals.remove(key)
+            container.appearance.delete(key)
             return@withLock
         }
         val options = container.repository.options(row)
@@ -113,7 +113,7 @@ class CopyController(private val context: Context, private val container: AppCon
         if (version != null && version != row.actionVersion) return@withLock null
         if (row.state != NotificationState.COPY_VISIBLE && row.state != NotificationState.COPY_WAITING) return@withLock null
         if (isExpired(row, System.currentTimeMillis())) { refresh(); return@withLock null }
-        group(row).forEach { container.replyActions.remove(it.sourceKey); container.appearance.originals.remove(it.sourceKey); dao.saveNotification(it.copy(state = NotificationState.DONE, nextShowAt = null, nextRepeatAt = null, updatedAt = System.currentTimeMillis())); if (it.id != row.id) container.contentIntents.remove(it.sourceKey) }
+        group(row).forEach { container.replyActions.remove(it.sourceKey); container.appearance.delete(it.sourceKey); dao.saveNotification(it.copy(state = NotificationState.DONE, nextShowAt = null, nextRepeatAt = null, updatedAt = System.currentTimeMillis())); if (it.id != row.id) container.contentIntents.remove(it.sourceKey) }
         row.copyId?.let { manager.cancel("copy", it) }
         refresh()
         row
@@ -153,6 +153,7 @@ class CopyController(private val context: Context, private val container: AppCon
         catch (_: SecurityException) { return@withLock false }
         dao.saveNotification(row.copy(state = NotificationState.DONE, nextShowAt = null, nextRepeatAt = null, updatedAt = System.currentTimeMillis()))
         container.replyActions.remove(row.sourceKey)
+        container.appearance.delete(row.sourceKey)
         container.contentIntents.remove(row.sourceKey)
         row.copyId?.let { manager.cancel("copy", it) }
         refresh(true)
@@ -190,7 +191,7 @@ class CopyController(private val context: Context, private val container: AppCon
                 group(row).filter { it.id != row.id && it.state == NotificationState.COPY_VISIBLE }.forEach { posts[copyGroupKey(it)] = it.id to false }
                 container.contentIntents.remove(row.sourceKey)
                 container.replyActions.remove(row.sourceKey)
-                container.appearance.originals.remove(row.sourceKey)
+                container.appearance.delete(row.sourceKey)
                 return@forEach
             }
             if (quietUntil != null || unselected) {

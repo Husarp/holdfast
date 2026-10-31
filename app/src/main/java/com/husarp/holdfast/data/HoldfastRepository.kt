@@ -9,7 +9,7 @@ import androidx.room.withTransaction
 import com.husarp.holdfast.notifications.NotificationFields
 import com.husarp.holdfast.notifications.mapNotification
 
-class HoldfastRepository(private val database: HoldfastDatabase, private val locationAllowed: () -> Boolean = { false }) {
+class HoldfastRepository(private val database: HoldfastDatabase, private val appearance: com.husarp.holdfast.notifications.OriginalAppearance? = null, private val locationAllowed: () -> Boolean = { false }) {
     val spam = database.dao().observeSpam()
     suspend fun checkSpam(now: Long) = notificationMutex.withLock {
         val since = now - 7L * 24 * 60 * 60 * 1000
@@ -84,10 +84,18 @@ class HoldfastRepository(private val database: HoldfastDatabase, private val loc
             dao.deleteOldEvents(cutoff)
             dao.deleteOldNotifications(cutoff)
         }
+        sweepAppearance()
     }
 
-    suspend fun reconcileActiveKeys(activeKeys: List<String>, now: Long) {
+    private suspend fun sweepAppearance() {
+        appearance?.sweep(dao.allNotifications().filter {
+            it.state != NotificationState.DONE && it.state != NotificationState.EXPIRED
+        }.map { it.sourceKey }.toSet())
+    }
+
+    suspend fun reconcileActiveKeys(activeKeys: List<String>, now: Long) = notificationMutex.withLock {
         // A missed removal has no dismissal reason, so it must not trigger a copy.
         dao.finishMissingOriginals(activeKeys, now)
+        sweepAppearance()
     }
 }
